@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/accessibility_profile.v1.schema.json",
+  "title": "AccessibilityProfileV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "consent_to_profile",
+    "needs",
+    "communication",
+    "preferences",
+    "confidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "accessibility_profile.v1"
+    },
+    "consent_to_profile": {
+      "type": "boolean"
+    },
+    "needs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vision", "hearing", "mobility", "cognitive"],
+      "properties": {
+        "vision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["blind_or_low_vision", "prefers_landmarks"],
+          "properties": {
+            "blind_or_low_vision": {"type": ["boolean", "null"]},
+            "prefers_landmarks": {"type": ["boolean", "null"]}
+          }
+        },
+        "hearing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["deaf_or_hard_of_hearing", "sign_language_user"],
+          "properties": {
+            "deaf_or_hard_of_hearing": {"type": ["boolean", "null"]},
+            "sign_language_user": {"type": ["boolean", "null"]}
+          }
+        },
+        "mobility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wheelchair_user", "needs_step_free_route", "avoid_long_walks"],
+          "properties": {
+            "wheelchair_user": {"type": ["boolean", "null"]},
+            "needs_step_free_route": {"type": ["boolean", "null"]},
+            "avoid_long_walks": {"type": ["boolean", "null"]}
+          }
+        },
+        "cognitive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "needs_simple_language",
+            "needs_memory_support",
+            "reading_or_memory_difficulty_or_child"
+          ],
+          "properties": {
+            "needs_simple_language": {"type": ["boolean", "null"]},
+            "needs_memory_support": {"type": ["boolean", "null"]},
+            "reading_or_memory_difficulty_or_child": {"type": ["boolean", "null"]}
+          }
+        }
+      }
+    },
+    "communication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output_mode"],
+      "properties": {
+        "output_mode": {
+          "type": "string",
+          "enum": ["standard_text", "simple_text", "sign_gloss_text"]
+        }
+      }
+    },
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["avoid_crowds", "extra_time_buffer_min"],
+      "properties": {
+        "avoid_crowds": {"type": ["boolean", "null"]},
+        "extra_time_buffer_min": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 120
+        }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall", "per_domain"],
+      "properties": {
+        "overall": {"type": "number", "minimum": 0, "maximum": 1},
+        "per_domain": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["vision", "hearing", "mobility", "cognitive"],
+          "properties": {
+            "vision": {"type": "number", "minimum": 0, "maximum": 1},
+            "hearing": {"type": "number", "minimum": 0, "maximum": 1},
+            "mobility": {"type": "number", "minimum": 0, "maximum": 1},
+            "cognitive": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        }
+      }
+    }
+  }
+}
