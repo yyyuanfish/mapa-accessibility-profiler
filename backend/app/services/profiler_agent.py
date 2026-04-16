@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
@@ -11,17 +10,50 @@ from backend.app.models import (
     OutputMode,
     ProfilePatch,
     ProfilerAgentOutput,
-    ProfilerLLMResponse,
 )
 from backend.app.providers.llm_provider import LLMProvider
-from backend.app.utils.json_extract import JSONExtractionError, extract_first_json
+from backend.app.utils.dict_merge import deep_merge_dicts
 
 
 class ProfilerAgent:
+    # Expanded profiler prompt: schema excerpt + few-shot examples + rules.
+    # Size is still tiny for llama3.1:8b's 8k context (~700 chars) but gives
+    # the model enough structure to map natural-language variants onto the
+    # real profile shape. Small enough that Mock and retry paths stay fast.
     SYSTEM_PROMPT = (
         "TASK=PROFILER\n"
-        "Infer functional accessibility needs only. "
-        "Never diagnose conditions. Return JSON with profile_patch."
+        "Extract functional accessibility needs from the user message.\n"
+        "Never diagnose medical conditions. Return ONLY JSON with a \"profile_patch\".\n"
+        "\n"
+        "Schema (only include fields the user mentions):\n"
+        "{\"profile_patch\":{\"needs\":{"
+        "\"vision\":{\"blind_or_low_vision\":bool,\"prefers_landmarks\":bool},"
+        "\"hearing\":{\"deaf_or_hard_of_hearing\":bool,\"sign_language_user\":bool},"
+        "\"mobility\":{\"wheelchair_user\":bool,\"needs_step_free_route\":bool,\"avoid_long_walks\":bool},"
+        "\"cognitive\":{\"needs_simple_language\":bool,\"needs_memory_support\":bool,"
+        "\"reading_or_memory_difficulty_or_child\":bool}},"
+        "\"communication\":{\"output_mode\":\"standard_text|simple_text|sign_gloss_text\"}}}\n"
+        "\n"
+        "Examples:\n"
+        "USER \"I am blind\" -> {\"profile_patch\":{\"needs\":{\"vision\":"
+        "{\"blind_or_low_vision\":true,\"prefers_landmarks\":true}}}}\n"
+        "USER \"eye problem, walk badly, can't read complex text\" -> "
+        "{\"profile_patch\":{\"needs\":{"
+        "\"vision\":{\"blind_or_low_vision\":true,\"prefers_landmarks\":true},"
+        "\"mobility\":{\"wheelchair_user\":true,\"needs_step_free_route\":true,\"avoid_long_walks\":true},"
+        "\"cognitive\":{\"needs_simple_language\":true,\"reading_or_memory_difficulty_or_child\":true}},"
+        "\"communication\":{\"output_mode\":\"simple_text\"}}}\n"
+        "USER \"I use sign language\" -> {\"profile_patch\":{\"needs\":{\"hearing\":"
+        "{\"deaf_or_hard_of_hearing\":true,\"sign_language_user\":true}},"
+        "\"communication\":{\"output_mode\":\"sign_gloss_text\"}}}\n"
+        "USER \"skip\" -> {\"profile_patch\":{}}\n"
+        "\n"
+        "Rules:\n"
+        "- Output JSON only, no prose.\n"
+        "- Omit keys the user did not mention.\n"
+        "- \"walk badly\" / \"bad leg\" / \"trouble walking\" imply needs_step_free_route=true.\n"
+        "- \"complex text\" / \"difficult words\" imply needs_simple_language=true.\n"
+        "- \"eye problem\" / \"vision issue\" imply blind_or_low_vision=true."
     )
     _SUPPORTED_LANGS = {"en", "zh", "de"}
     _QUESTION_TEXTS = {
@@ -48,8 +80,25 @@ class ProfilerAgent:
         },
     }
 
-    def __init__(self, llm_provider: LLMProvider) -> None:
+    def __init__(
+        self,
+        llm_provider: LLMProvider,
+        needs_extractor: "NeedsExtractor | None" = None,
+    ) -> None:
+        """Construct a profiler agent.
+
+        ``needs_extractor`` is the Phase 2 NLU subagent. It is optional for
+        backward compatibility: existing callers that only passed
+        ``llm_provider`` keep working because we lazily build a default
+        extractor from the same provider.
+        """
+        # Local import to avoid a circular dependency at module load: the
+        # extractor imports nothing from this module, but future type-checking
+        # tools may surface the cycle if imported at top level.
+        from backend.app.services.needs_extractor import NeedsExtractor
+
         self.llm_provider = llm_provider
+        self.needs_extractor = needs_extractor or NeedsExtractor(llm_provider)
 
     def process_turn(
         self,
@@ -63,21 +112,27 @@ class ProfilerAgent:
         skipped = set(skipped_domains or [])
         current = ProfilePatch.model_validate(current_patch or {})
 
-        llm_patch_dict = self._request_patch(
+        # NLU: LLM + lexicon scan, delegated to the subagent. Use
+        # ``extract_with_confidence`` to get domain-level confidence hints
+        # (lexicon vs LLM source) that feed into ``_compute_confidence``.
+        extraction = self.needs_extractor.extract_with_confidence(
             user_message=user_message,
             current_patch=current,
             question_context=question_context,
         )
-        context_patch_dict = self._contextual_patch(
-            user_message=user_message,
-            question_context=question_context,
-        )
-        merged_dict = self._deep_merge_dicts(current.model_dump(), llm_patch_dict)
-        merged_dict = self._deep_merge_dicts(merged_dict, context_patch_dict)
+        # Dialogue: context-specific yes/no overlay (e.g. plain "yes" to the
+        # current question fills in that domain). Runs AFTER extraction so an
+        # explicit focused answer wins over free-text signal.
+        context_patch_dict = self._context_yes_no_overlay(user_message, question_context)
+
+        merged_dict = deep_merge_dicts(current.model_dump(), extraction.patch)
+        merged_dict = deep_merge_dicts(merged_dict, context_patch_dict)
         merged_dict = self._enforce_output_mode_rules(merged_dict)
         merged_patch = ProfilePatch.model_validate(merged_dict)
 
-        confidence = self._compute_confidence(merged_patch, skipped)
+        confidence = self._compute_confidence(
+            merged_patch, skipped, domain_hints=extraction.domain_confidence_hints,
+        )
         missing = self._missing_critical_fields(merged_patch, skipped)
         next_question, next_question_context = self._next_question(merged_patch, skipped, language)
         confirmation_text = self._confirmation_text(merged_patch, language)
@@ -107,31 +162,10 @@ class ProfilerAgent:
             confidence=confidence,
         )
 
-    def _request_patch(
-        self,
-        user_message: str,
-        current_patch: ProfilePatch,
-        question_context: str | None,
-    ) -> dict[str, Any]:
-        payload = {
-            "user_message": user_message,
-            "current_patch": current_patch.model_dump(exclude_none=True),
-            "question_context": question_context,
-        }
-
-        user_prompt = json.dumps(payload)
-        raw = self.llm_provider.complete(self.SYSTEM_PROMPT, user_prompt)
-
-        try:
-            parsed = extract_first_json(raw)
-            validated = ProfilerLLMResponse.model_validate(parsed)
-            return validated.profile_patch.model_dump(exclude_defaults=True, exclude_none=True)
-        except (JSONExtractionError, ValueError):
-            retry_system_prompt = self.SYSTEM_PROMPT + "\nReturn ONLY JSON."
-            raw_retry = self.llm_provider.complete(retry_system_prompt, user_prompt)
-            parsed_retry = extract_first_json(raw_retry)
-            validated_retry = ProfilerLLMResponse.model_validate(parsed_retry)
-            return validated_retry.profile_patch.model_dump(exclude_defaults=True, exclude_none=True)
+    # NOTE: ``_request_patch`` (LLM call + JSON validation) used to live here
+    # but has moved to ``NeedsExtractor._request_llm_patch`` in Phase 2. The
+    # profiler no longer owns any LLM prompt — it delegates to the extractor
+    # subagent.
 
     def _missing_critical_fields(self, patch: ProfilePatch, skipped_domains: set[str]) -> list[str]:
         missing: list[str] = []
@@ -166,7 +200,31 @@ class ProfilerAgent:
     def _domain_known(values: list[bool | None]) -> int:
         return sum(1 for value in values if value is not None)
 
-    def _compute_confidence(self, patch: ProfilePatch, skipped_domains: set[str]) -> ConfidenceScores:
+    def _compute_confidence(
+        self,
+        patch: ProfilePatch,
+        skipped_domains: set[str],
+        domain_hints: dict[str, float] | None = None,
+    ) -> ConfidenceScores:
+        """Compute per-domain and overall confidence.
+
+        ``domain_hints`` (optional, Phase 3) is a dict mapping domain names to
+        source-confidence floats produced by ``NeedsExtractor``:
+
+        - 0.9 → lexicon **and** LLM both populated the domain.
+        - 0.8 → deterministic lexicon match only.
+        - 0.5 → LLM inference only.
+
+        When hints are available, a domain's score is the product of the
+        field-coverage ratio and the source-confidence hint. This means a
+        lexicon-confirmed domain with all fields known scores 0.9, while an
+        LLM-only domain with partial fields might score 0.25.
+
+        When ``domain_hints`` is ``None`` (backward compat with callers that
+        still call ``extract`` instead of ``extract_with_confidence``), the
+        score falls back to the original field-count ratio.
+        """
+        hints = domain_hints or {}
         vision_total = 1
         hearing_total = 2
         mobility_total = 2
@@ -190,7 +248,14 @@ class ProfilerAgent:
         def score(known: int, total: int, domain: str) -> float:
             if domain in skipped_domains and known == 0:
                 return 0.3
-            return round(known / total, 2)
+            coverage = known / total
+            # When we have a source-confidence hint, multiply coverage by
+            # the hint so a lexicon-backed domain scores higher than an
+            # LLM-only domain with the same field coverage.
+            source_confidence = hints.get(domain)
+            if source_confidence is not None and known > 0:
+                return round(coverage * source_confidence, 2)
+            return round(coverage, 2)
 
         per_domain = DomainConfidence(
             vision=score(vision_known, vision_total, "vision"),
@@ -365,15 +430,26 @@ class ProfilerAgent:
         lang = self._normalize_language(language)
         return self._QUESTION_TEXTS.get(lang, self._QUESTION_TEXTS["en"])[context]
 
-    def _contextual_patch(self, user_message: str, question_context: str | None) -> dict[str, Any]:
+    def _context_yes_no_overlay(
+        self, user_message: str, question_context: str | None
+    ) -> dict[str, Any]:
+        """Return the patch implied by a plain yes/no/skip to the focused question.
+
+        This is the *overlay* that runs on top of ``NeedsExtractor.extract``:
+        when the user types a recognizable yes/no to the current question, we
+        set every field that question is supposed to populate. Returns ``{}``
+        when no focused question is active or the message isn't a clean yes/no.
+        """
         if not question_context:
             return {}
-
         answer = self._classify_short_answer(user_message)
         if answer not in {"yes", "no"}:
             return {}
-        yes = answer == "yes"
+        return self._context_yes_no_patch(question_context, answer == "yes")
 
+    @staticmethod
+    def _context_yes_no_patch(question_context: str, yes: bool) -> dict[str, Any]:
+        """Build the patch that corresponds to a plain yes/no on the focused question."""
         if question_context == "vision":
             return {
                 "needs": {
@@ -441,59 +517,55 @@ class ProfilerAgent:
 
     @staticmethod
     def _classify_short_answer(user_message: str) -> str | None:
+        """Classify the user's message as ``yes``/``no``/``skip``/``None``.
+
+        Two-layer logic:
+
+        1. **Lead-token match.** Find the first alphanumeric / CJK token and
+           check it against the yes/no/skip sets. This catches replies that
+           start with a short affirmation followed by free text, e.g.
+           ``"yes I have eye problem, ..."`` which the previous exact-match
+           rule missed.
+        2. **Compact exact-match fallback.** Kept verbatim so short multi-word
+           phrases like ``"n a"`` (becomes ``"na"``) still classify as skip.
+        """
         raw = user_message.strip().lower()
         if not raw:
             return None
 
+        skip_tokens = {
+            "skip", "pass", "none", "na", "n/a",
+            "跳过", "略过", "先跳过",
+            "überspringen", "skippen", "keineangabe",
+        }
+        yes_tokens = {
+            "yes", "y", "yeah", "yep", "sure", "ok", "okay", "ja",
+            "有", "是", "对", "好", "可以", "需要", "需要的",
+        }
+        no_tokens = {
+            "no", "n", "nope", "nein",
+            "否", "没有", "不用", "不需要", "不是", "不",
+            "kein", "nicht",
+        }
+
+        # (1) Lead-token: grab the first run of letters/digits/CJK characters.
+        lead_match = re.match(
+            r"[\s\.,!?;:，。！？；：\-_]*([\w\u4e00-\u9fff]+)",
+            raw,
+        )
+        if lead_match:
+            lead = lead_match.group(1)
+            if lead in skip_tokens:
+                return "skip"
+            if lead in yes_tokens:
+                return "yes"
+            if lead in no_tokens:
+                return "no"
+
+        # (2) Compact exact-match fallback (original behavior).
         compact = re.sub(r"[\s\.,!?;:，。！？；：\-_]+", "", raw)
         if not compact:
             return None
-
-        skip_tokens = {
-            "skip",
-            "pass",
-            "none",
-            "na",
-            "n/a",
-            "跳过",
-            "略过",
-            "先跳过",
-            "überspringen",
-            "skippen",
-            "keineangabe",
-        }
-        yes_tokens = {
-            "yes",
-            "y",
-            "yeah",
-            "yep",
-            "sure",
-            "ok",
-            "okay",
-            "ja",
-            "有",
-            "是",
-            "对",
-            "好",
-            "可以",
-            "需要",
-            "需要的",
-        }
-        no_tokens = {
-            "no",
-            "n",
-            "nope",
-            "nein",
-            "否",
-            "没有",
-            "不用",
-            "不需要",
-            "不是",
-            "不",
-            "kein",
-            "nicht",
-        }
-
         if compact in skip_tokens:
             return "skip"
         if compact in yes_tokens:
@@ -523,12 +595,8 @@ class ProfilerAgent:
         return merged
 
     def _deep_merge_dicts(self, base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
-        merged = dict(base)
-        for key, value in incoming.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key] = self._deep_merge_dicts(merged[key], value)
-            elif isinstance(value, dict):
-                merged[key] = self._deep_merge_dicts({}, value)
-            elif value is not None:
-                merged[key] = value
-        return merged
+        # Thin wrapper kept for backward compatibility with existing call sites.
+        # The real implementation lives in ``backend.app.utils.dict_merge`` so
+        # taxonomy, needs extractor, and orchestrator can share it without
+        # importing from this module.
+        return deep_merge_dicts(base, incoming)

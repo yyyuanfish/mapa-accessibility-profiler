@@ -89,7 +89,7 @@ class OllamaLLMProvider(LLMProvider):
         return deduped
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
-        payload = {
+        payload: dict[str, object] = {
             "model": self.model,
             "stream": False,
             "messages": [
@@ -100,6 +100,11 @@ class OllamaLLMProvider(LLMProvider):
                 "temperature": 0,
             },
         }
+        # When the system prompt indicates a profiler task, force structured
+        # JSON output. Ollama's ``format: "json"`` makes the model emit
+        # syntactically valid JSON, eliminating most parse/retry failures.
+        if "TASK=PROFILER" in system_prompt or "TASK=PLANNER" in system_prompt:
+            payload["format"] = "json"
         last_exc: RequestException | None = None
         for candidate in self._candidate_base_urls():
             try:
@@ -159,105 +164,26 @@ class MockLLMProvider(LLMProvider):
         return "unknown"
 
     def _complete_profiler(self, user_prompt: str) -> str:
-        payload = self._safe_json_load(user_prompt)
-        user_message = str(payload.get("user_message", "")).lower()
+        """Offline profiler response.
 
-        if "skip" in user_message:
+        Delegates free-text -> patch mapping to ``needs_taxonomy`` so Mock and
+        Ollama paths share one lexicon. Keeps the bare ``skip`` short-circuit
+        so an explicit skip never accidentally triggers a positive from an
+        incidental substring.
+        """
+        # Import locally to avoid a circular import at module load (the
+        # taxonomy does not depend on the provider, but this keeps the import
+        # graph simple for anyone reading top-level imports).
+        from backend.app.services import needs_taxonomy
+
+        payload = self._safe_json_load(user_prompt)
+        user_message = str(payload.get("user_message", ""))
+        lowered = user_message.lower()
+
+        if "skip" in lowered:
             return json.dumps({"profile_patch": {}})
 
-        needs: dict[str, Any] = {}
-        communication: dict[str, Any] = {}
-
-        vision_val = self._detect_bool(
-            user_message,
-            positives=["blind", "low vision", "low-vision", "screen reader", "cannot see", "can't see"],
-            negatives=["no vision support", "no vision needs", "not blind"],
-        )
-        if vision_val is not None:
-            needs.setdefault("vision", {})["blind_or_low_vision"] = vision_val
-            if vision_val:
-                needs.setdefault("vision", {})["prefers_landmarks"] = True
-
-        hearing_val = self._detect_bool(
-            user_message,
-            positives=["deaf", "hard of hearing", "hoh", "cannot hear", "can't hear"],
-            negatives=["not deaf", "no hearing needs", "hearing is fine"],
-        )
-        if hearing_val is not None:
-            needs.setdefault("hearing", {})["deaf_or_hard_of_hearing"] = hearing_val
-
-        sign_val = self._detect_bool(
-            user_message,
-            positives=["sign language", "asl", "signed", "sign user"],
-            negatives=["no sign language", "do not sign"],
-        )
-        if sign_val is not None:
-            needs.setdefault("hearing", {})["sign_language_user"] = sign_val
-            if sign_val:
-                communication["output_mode"] = "sign_gloss_text"
-
-        wheelchair_val = self._detect_bool(
-            user_message,
-            positives=["wheelchair", "walker", "cannot climb stairs", "can't climb stairs", "mobility support"],
-            negatives=[
-                "no mobility support",
-                "not a wheelchair user",
-                "no wheelchair",
-                "no wheelchair needs",
-                "without wheelchair support",
-            ],
-        )
-        if wheelchair_val is not None:
-            needs.setdefault("mobility", {})["wheelchair_user"] = wheelchair_val
-            if wheelchair_val:
-                needs.setdefault("mobility", {})["needs_step_free_route"] = True
-                needs.setdefault("mobility", {})["avoid_long_walks"] = True
-
-        step_free_val = self._detect_bool(
-            user_message,
-            positives=["step free", "step-free", "avoid stairs", "no stairs"],
-            negatives=["stairs are fine", "steps are okay"],
-        )
-        if step_free_val is not None:
-            needs.setdefault("mobility", {})["needs_step_free_route"] = step_free_val
-
-        simple_val = self._detect_bool(
-            user_message,
-            positives=[
-                "simple english",
-                "easy words",
-                "short sentences",
-                "child",
-                "kid",
-                "reading difficulty",
-                "memory difficulty",
-                "i forget",
-                "hard to read",
-            ],
-            negatives=["no simple language", "standard language is fine"],
-        )
-        if simple_val is not None:
-            needs.setdefault("cognitive", {})["needs_simple_language"] = simple_val
-            if simple_val:
-                needs.setdefault("cognitive", {})["reading_or_memory_difficulty_or_child"] = True
-                communication.setdefault("output_mode", "simple_text")
-
-        memory_val = self._detect_bool(
-            user_message,
-            positives=["memory", "reminders", "forget"],
-            negatives=["no memory issues", "memory is fine"],
-        )
-        if memory_val is not None:
-            needs.setdefault("cognitive", {})["needs_memory_support"] = memory_val
-            if memory_val:
-                needs.setdefault("cognitive", {})["reading_or_memory_difficulty_or_child"] = True
-                communication.setdefault("output_mode", "simple_text")
-
-        patch: dict[str, Any] = {}
-        if needs:
-            patch["needs"] = needs
-        if communication:
-            patch["communication"] = communication
+        patch = needs_taxonomy.extract_all_domains(user_message)
         return json.dumps({"profile_patch": patch})
 
     def _complete_planner(self, user_prompt: str) -> str:
@@ -280,16 +206,6 @@ class MockLLMProvider(LLMProvider):
         except json.JSONDecodeError:
             pass
         return {}
-
-    @staticmethod
-    def _detect_bool(text: str, positives: list[str], negatives: list[str]) -> bool | None:
-        for neg in negatives:
-            if neg in text:
-                return False
-        for pos in positives:
-            if pos in text:
-                return True
-        return None
 
     def _to_sign_gloss_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         transformed = dict(plan)

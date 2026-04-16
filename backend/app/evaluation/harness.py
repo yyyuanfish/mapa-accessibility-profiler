@@ -66,6 +66,22 @@ PERSONAS: list[PersonaCase] = [
             "needs_memory_support",
         },
     ),
+    # Regression case for the natural-language multi-needs bug:
+    # a single free-form utterance that mixes three domains with colloquial
+    # phrasing ("eye problem", "walk badly", "complex text"). Before the
+    # Phase 1 fix this utterance produced an empty patch.
+    PersonaCase(
+        name="free_form_multi_needs_persona",
+        utterances=[
+            "yes I have eye problem, also I walk badly, and I can't read complex text",
+            "No hearing support needed.",
+        ],
+        expected_positive_labels={
+            "blind_or_low_vision",
+            "needs_step_free_route",
+            "needs_simple_language",
+        },
+    ),
 ]
 
 

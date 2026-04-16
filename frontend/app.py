@@ -48,6 +48,8 @@ from backend.app.models import OutputMode
 from backend.app.providers.image_provider import ImageProvider, MockImageProvider, OllamaImageProvider
 from backend.app.providers.llm_provider import LLMProvider, MockLLMProvider, OllamaLLMProvider
 from backend.app.providers.route_provider import MockRouteProvider
+from backend.app.services.needs_extractor import NeedsExtractor
+from backend.app.services.orchestrator import Orchestrator
 from backend.app.services.planner_agent import PlannerAgent
 from backend.app.services.profiler_agent import ProfilerAgent
 
@@ -82,7 +84,7 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
-def get_services() -> tuple[ProfilerAgent, PlannerAgent, MockRouteProvider, ImageProvider]:
+def get_services() -> tuple[ProfilerAgent, PlannerAgent, MockRouteProvider, ImageProvider, Orchestrator]:
     config = (
         st.session_state["provider_mode"],
         st.session_state["ollama_base_url"],
@@ -145,9 +147,18 @@ def get_services() -> tuple[ProfilerAgent, PlannerAgent, MockRouteProvider, Imag
             llm_provider = MockLLMProvider()
             image_provider = MockImageProvider()
 
-        profiler = ProfilerAgent(llm_provider=llm_provider)
+        needs_extractor = NeedsExtractor(llm_provider=llm_provider)
+        profiler = ProfilerAgent(llm_provider=llm_provider, needs_extractor=needs_extractor)
         planner = PlannerAgent(llm_provider=llm_provider, route_provider=route_provider)
-        st.session_state["_services"] = (profiler, planner, route_provider, image_provider)
+        orchestrator = Orchestrator(
+            profiler=profiler,
+            needs_extractor=needs_extractor,
+            planner=planner,
+            image_provider=image_provider,
+        )
+        st.session_state["_services"] = (
+            profiler, planner, route_provider, image_provider, orchestrator,
+        )
         st.session_state["_services_config"] = config
     return st.session_state["_services"]
 
@@ -539,11 +550,16 @@ def maybe_image_hazards(
 
 
 def render_chat_mode(
-    profiler: ProfilerAgent,
+    orchestrator: Orchestrator,
     planner: PlannerAgent,
     route_provider: MockRouteProvider,
     image_provider: ImageProvider,
 ) -> None:
+    # All dialogue state now lives inside the Orchestrator's SessionState.
+    # The ``st.session_state`` keys kept below are thin mirrors used only for
+    # rendering (chat bubbles, profile JSON panel, hazard cache, etc.).
+    profiler = orchestrator.profiler
+
     ui_lang = resolve_response_language(
         choice=st.session_state["response_language_choice"],
         user_input="",
@@ -571,6 +587,7 @@ def render_chat_mode(
         return
 
     if st.button(text["reset_chat"], key="chat_reset"):
+        orchestrator.reset(language=ui_lang)
         st.session_state["profile_patch"] = {}
         st.session_state["skipped_domains"] = []
         st.session_state["final_profile"] = None
@@ -585,6 +602,10 @@ def render_chat_mode(
         st.session_state["response_language"] = ui_lang
         opener = text["opener"]
         st.session_state["chat_history"].append({"role": "assistant", "text": opener})
+        # Sync the orchestrator's dialogue cursor to match the opener.
+        orchestrator.state.last_question_context = "vision"
+        orchestrator.state.language = ui_lang
+        orchestrator.state.consent_to_profile = True
         st.session_state["last_question_context"] = "vision"
 
     for message in st.session_state["chat_history"]:
@@ -594,53 +615,55 @@ def render_chat_mode(
     user_input = st.chat_input(text["type_answer"])
     if user_input:
         st.session_state["chat_history"].append({"role": "user", "text": user_input})
-
         st.session_state["response_language"] = ui_lang
-
-        parsed_short_answer = classify_short_answer(user_input)
-        if parsed_short_answer == "skip" and st.session_state["last_question_context"]:
-            domain = context_to_domain(st.session_state["last_question_context"])
-            if domain not in st.session_state["skipped_domains"]:
-                st.session_state["skipped_domains"].append(domain)
+        orchestrator.state.consent_to_profile = True
 
         used_mock_fallback = False
         try:
-            result = profiler.process_turn(
-                user_message=user_input,
-                current_patch=st.session_state["profile_patch"],
-                skipped_domains=st.session_state["skipped_domains"],
-                question_context=st.session_state["last_question_context"],
-                response_language=ui_lang,
-            )
+            turn = orchestrator.handle_turn(user_input, response_language=ui_lang)
         except Exception as exc:
             st.error(f"{text['profiler_failed']}: {exc.__class__.__name__}")
             with st.expander(text["details"]):
                 st.write(str(exc))
             st.info(text["fallback_mock"])
             used_mock_fallback = True
-            fallback_profiler = ProfilerAgent(llm_provider=MockLLMProvider())
-            result = fallback_profiler.process_turn(
-                user_message=user_input,
-                current_patch=st.session_state["profile_patch"],
-                skipped_domains=st.session_state["skipped_domains"],
-                question_context=st.session_state["last_question_context"],
-                response_language=ui_lang,
+            # Build an all-Mock fallback orchestrator that carries the current
+            # session's patch/skipped domains forward so the user's progress
+            # isn't lost when Ollama misbehaves mid-session.
+            fallback_llm = MockLLMProvider()
+            fallback_extractor = NeedsExtractor(llm_provider=fallback_llm)
+            fallback_profiler = ProfilerAgent(
+                llm_provider=fallback_llm, needs_extractor=fallback_extractor
             )
+            fallback_orch = Orchestrator(
+                profiler=fallback_profiler,
+                needs_extractor=fallback_extractor,
+                planner=planner,
+                image_provider=image_provider,
+            )
+            fallback_orch.state.profile_patch = orchestrator.state.profile_patch
+            fallback_orch.state.skipped_domains = list(orchestrator.state.skipped_domains)
+            fallback_orch.state.last_question_context = orchestrator.state.last_question_context
+            fallback_orch.state.language = ui_lang
+            fallback_orch.state.consent_to_profile = True
+            turn = fallback_orch.handle_turn(user_input, response_language=ui_lang)
+            # Copy the updated state back into the real orchestrator so the
+            # next turn sees the fallback's progress.
+            orchestrator.state.profile_patch = fallback_orch.state.profile_patch
+            orchestrator.state.skipped_domains = fallback_orch.state.skipped_domains
+            orchestrator.state.last_question_context = fallback_orch.state.last_question_context
 
-        st.session_state["profile_patch"] = result.profile_patch.model_dump()
-        st.session_state["final_profile"] = profiler.build_profile(
-            st.session_state["profile_patch"],
-            consent_to_profile=True,
-            skipped_domains=st.session_state["skipped_domains"],
-        ).model_dump()
+        # Mirror orchestrator state into the Streamlit keys the rest of the UI reads.
+        st.session_state["profile_patch"] = turn.profile_patch
+        st.session_state["skipped_domains"] = list(orchestrator.state.skipped_domains)
+        st.session_state["last_question_context"] = turn.next_question_context
+        st.session_state["final_profile"] = orchestrator.build_profile().model_dump()
 
-        st.session_state["last_question_context"] = result.next_question_context
-
-        response = result.confirmation_text
+        response = turn.confirmation_text
         if used_mock_fallback:
             response += f"\n\n{text['mock_note']}"
-        if result.next_question:
-            response += f"\n\n{text['next_prefix']}{result.next_question}"
+        if turn.next_question:
+            response += f"\n\n{text['next_prefix']}{turn.next_question}"
         else:
             response += f"\n\n{text['done']}"
 
@@ -920,12 +943,12 @@ def main() -> None:
     else:
         st.sidebar.caption(text["mock_caption"])
 
-    profiler, planner, route_provider, image_provider = get_services()
+    profiler, planner, route_provider, image_provider, orchestrator = get_services()
 
     mode = st.radio(text["ui_mode"], options=[text["chat_only"], text["stepper"]], horizontal=True)
 
     if mode == text["chat_only"]:
-        render_chat_mode(profiler, planner, route_provider, image_provider)
+        render_chat_mode(orchestrator, planner, route_provider, image_provider)
     else:
         render_stepper_mode(profiler, planner, route_provider, image_provider)
 
