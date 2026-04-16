@@ -58,25 +58,37 @@ class ProfilerAgent:
     _SUPPORTED_LANGS = {"en", "zh", "de"}
     _QUESTION_TEXTS = {
         "en": {
-            "vision": "Do you have any vision-related access needs, such as blind or low-vision support? (yes/no/skip)",
-            "hearing": "Do you have hearing-related needs, including Deaf/HoH support? (yes/no/skip)",
-            "hearing_sign": "Do you want sign-language style text output? (yes/no/skip)",
-            "mobility": "Do you use a wheelchair or need step-free routes without stairs? (yes/no/skip)",
-            "cognitive": "Would Simple English, shorter steps, or memory reminders help you? (yes/no/skip)",
+            "vision": "Do you have any vision-related access needs, such as blind or low-vision support? Please answer yes or no (or skip).",
+            "hearing": "Do you have hearing-related needs? Please answer yes or no (or skip).",
+            "hearing_sign": "Would you prefer sign-language style text output? Please answer yes or no (or skip).",
+            "mobility": "Do you use a wheelchair or need step-free routes? Please answer yes or no (or skip).",
+            "mobility_wheelchair": "Do you use a wheelchair? Please answer yes or no (or skip).",
+            "mobility_step_free": "Do you need a step-free route (no stairs)? Please answer yes or no (or skip).",
+            "cognitive": "Would Simple English, shorter steps, or memory reminders help you? Please answer yes or no (or skip).",
+            "cognitive_simple": "Would simple language and shorter sentences help you? Please answer yes or no (or skip).",
+            "cognitive_memory": "Would memory reminders along the route help you? Please answer yes or no (or skip).",
         },
         "zh": {
-            "vision": "你是否有视觉相关的出行需求（如盲人/低视力支持）？（有/没有/是/否/跳过）",
-            "hearing": "你是否有听力相关需求（如听障支持）？（有/没有/是/否/跳过）",
-            "hearing_sign": "你是否希望使用手语风格文本输出？（有/没有/是/否/跳过）",
-            "mobility": "你是否使用轮椅，或需要无台阶路线？（有/没有/是/否/跳过）",
-            "cognitive": "你是否需要简明语言、更短步骤或记忆提醒？（有/没有/是/否/跳过）",
+            "vision": "你是否有视觉相关的出行需求（如盲人/低视力支持）？请回答「是」或「否」（也可以跳过）。",
+            "hearing": "你是否有听力相关需求？请回答「是」或「否」（也可以跳过）。",
+            "hearing_sign": "你是否希望使用手语风格文本输出？请回答「是」或「否」（也可以跳过）。",
+            "mobility": "你是否使用轮椅或需要无台阶路线？请回答「是」或「否」（也可以跳过）。",
+            "mobility_wheelchair": "你使用轮椅吗？请回答「是」或「否」（也可以跳过）。",
+            "mobility_step_free": "你需要无台阶路线（不走楼梯）吗？请回答「是」或「否」（也可以跳过）。",
+            "cognitive": "你是否需要简明语言、更短步骤或记忆提醒？请回答「是」或「否」（也可以跳过）。",
+            "cognitive_simple": "简明语言与较短句子对你有帮助吗？请回答「是」或「否」（也可以跳过）。",
+            "cognitive_memory": "路线中的记忆提醒对你有帮助吗？请回答「是」或「否」（也可以跳过）。",
         },
         "de": {
-            "vision": "Haben Sie visuelle Zugangsbedarfe, z. B. Unterstützung bei Blindheit/Sehbehinderung? (ja/nein/überspringen)",
-            "hearing": "Haben Sie hörbezogene Bedarfe, einschließlich Unterstützung für Gehörlos/Schwerhörig? (ja/nein/überspringen)",
-            "hearing_sign": "Möchten Sie eine gebärdensprachnahe Textausgabe? (ja/nein/überspringen)",
-            "mobility": "Nutzen Sie einen Rollstuhl oder benötigen Sie stufenfreie Routen ohne Treppen? (ja/nein/überspringen)",
-            "cognitive": "Würden Einfaches Deutsch, kurze Schritte oder Erinnerungshilfen helfen? (ja/nein/überspringen)",
+            "vision": "Haben Sie visuelle Zugangsbedarfe? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "hearing": "Haben Sie hörbezogene Bedarfe? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "hearing_sign": "Möchten Sie eine gebärdensprachnahe Textausgabe? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "mobility": "Nutzen Sie einen Rollstuhl oder benötigen Sie stufenfreie Routen? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "mobility_wheelchair": "Nutzen Sie einen Rollstuhl? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "mobility_step_free": "Benötigen Sie eine stufenfreie Route (ohne Treppen)? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "cognitive": "Würden einfache Sprache, kurze Schritte oder Erinnerungshilfen helfen? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "cognitive_simple": "Würden einfache Sprache und kürzere Sätze Ihnen helfen? Bitte antworten Sie mit ja oder nein (oder überspringen).",
+            "cognitive_memory": "Würden Erinnerungshilfen entlang der Route Ihnen helfen? Bitte antworten Sie mit ja oder nein (oder überspringen).",
         },
     }
 
@@ -107,10 +119,38 @@ class ProfilerAgent:
         skipped_domains: list[str] | None = None,
         question_context: str | None = None,
         response_language: str = "en",
+        turn_count: int = 1,
     ) -> ProfilerAgentOutput:
         language = self._normalize_language(response_language)
         skipped = set(skipped_domains or [])
         current = ProfilePatch.model_validate(current_patch or {})
+
+        # Handle the "confirm" question context: the user was asked to confirm
+        # the profile. If they say yes, finalize. If no/skip, re-triage.
+        short_answer = self._classify_short_answer(user_message)
+        if question_context == "confirm":
+            confidence = self._compute_confidence(current, skipped)
+            confirmation_text = self._confirmation_text(current, language)
+            if short_answer == "yes":
+                return ProfilerAgentOutput(
+                    profile_patch=current,
+                    confidence=confidence,
+                    missing_critical_fields=[],
+                    next_question=None,
+                    next_question_context=None,
+                    confirmation_text=confirmation_text,
+                )
+            if short_answer in {"no", "skip"}:
+                return ProfilerAgentOutput(
+                    profile_patch=current,
+                    confidence=confidence,
+                    missing_critical_fields=self._missing_critical_fields(current, skipped),
+                    next_question=self._triage_prompt(language),
+                    next_question_context="triage",
+                    confirmation_text=confirmation_text,
+                )
+            # If not a clear yes/no, fall through to re-extract.
+            question_context = None
 
         # NLU: LLM + lexicon scan, delegated to the subagent. Use
         # ``extract_with_confidence`` to get domain-level confidence hints
@@ -136,6 +176,29 @@ class ProfilerAgent:
         missing = self._missing_critical_fields(merged_patch, skipped)
         next_question, next_question_context = self._next_question(merged_patch, skipped, language)
         confirmation_text = self._confirmation_text(merged_patch, language)
+
+        if question_context in {None, "triage"} and turn_count <= 1 and self._is_empty_patch(merged_patch):
+            generic_context = self._generic_first_turn_context(user_message)
+            if generic_context is not None:
+                return ProfilerAgentOutput(
+                    profile_patch=merged_patch,
+                    confidence=confidence,
+                    missing_critical_fields=missing,
+                    next_question=self._question(generic_context, language),
+                    next_question_context=generic_context,
+                    confirmation_text=confirmation_text,
+                )
+            return ProfilerAgentOutput(
+                profile_patch=merged_patch,
+                confidence=confidence,
+                missing_critical_fields=missing,
+                next_question=self._triage_prompt(language),
+                next_question_context="triage",
+                confirmation_text=confirmation_text,
+            )
+
+        if next_question is None:
+            next_question_context = "confirm"
 
         return ProfilerAgentOutput(
             profile_patch=merged_patch,
@@ -168,13 +231,26 @@ class ProfilerAgent:
     # subagent.
 
     def _missing_critical_fields(self, patch: ProfilePatch, skipped_domains: set[str]) -> list[str]:
+        """Return only ROUTE-CRITICAL fields that still need an answer.
+
+        Per the expert review, "critical" here is narrowed to fields that
+        directly affect route selection or output form: step-free routing,
+        sign-language preference (→ output mode), and simple-language preference
+        (→ output mode). Vision/hearing/memory domains are NOT required for a
+        usable plan — we can generate a standard route without them and still
+        have a respectful, correct experience.
+        """
         missing: list[str] = []
 
-        if "vision" not in skipped_domains and patch.needs.vision.blind_or_low_vision is None:
-            missing.append("needs.vision.blind_or_low_vision")
+        # Step-free routing — directly affects the returned route.
+        if (
+            "mobility" not in skipped_domains
+            and patch.needs.mobility.needs_step_free_route is None
+        ):
+            missing.append("needs.mobility.needs_step_free_route")
 
-        if "hearing" not in skipped_domains and patch.needs.hearing.deaf_or_hard_of_hearing is None:
-            missing.append("needs.hearing.deaf_or_hard_of_hearing")
+        # Sign-language user → gates sign_gloss_text output mode, but only ask
+        # when we already know hearing support is needed.
         if (
             "hearing" not in skipped_domains
             and patch.needs.hearing.deaf_or_hard_of_hearing is True
@@ -182,17 +258,14 @@ class ProfilerAgent:
         ):
             missing.append("needs.hearing.sign_language_user")
 
-        if "mobility" not in skipped_domains and patch.needs.mobility.wheelchair_user is None:
-            missing.append("needs.mobility.wheelchair_user")
-
-        if "mobility" not in skipped_domains and patch.needs.mobility.needs_step_free_route is None:
-            missing.append("needs.mobility.needs_step_free_route")
-
-        if "cognitive" not in skipped_domains and patch.needs.cognitive.needs_simple_language is None:
+        # Simple-language preference → gates simple_text output mode, but only
+        # ask when the user already hinted at cognitive needs.
+        if (
+            "cognitive" not in skipped_domains
+            and patch.needs.cognitive.reading_or_memory_difficulty_or_child is True
+            and patch.needs.cognitive.needs_simple_language is None
+        ):
             missing.append("needs.cognitive.needs_simple_language")
-
-        if "cognitive" not in skipped_domains and patch.needs.cognitive.needs_memory_support is None:
-            missing.append("needs.cognitive.needs_memory_support")
 
         return missing
 
@@ -275,144 +348,138 @@ class ProfilerAgent:
         skipped_domains: set[str],
         language: str,
     ) -> tuple[str | None, str | None]:
-        if "vision" not in skipped_domains and patch.needs.vision.blind_or_low_vision is None:
-            return self._question("vision", language), "vision"
+        """Adaptive next-question policy (expert-reviewed).
 
-        if "hearing" not in skipped_domains and patch.needs.hearing.deaf_or_hard_of_hearing is None:
-            return self._question("hearing", language), "hearing"
+        Only follow up on branches the user has HIT (i.e. signalled a positive
+        need for). We do NOT walk every domain top-to-bottom — that wastes the
+        user's time and creates false positives when the triage turn already
+        cleared a domain.
+
+        Priority order is route-critical first:
+          1. step-free routing  (directly gates the chosen route)
+          2. sign-language      (gates sign_gloss_text output mode)
+          3. simple-language    (gates simple_text output mode)
+          4. memory reminders   (affects plan content only, not the route)
+        """
+        m = patch.needs.mobility
+        h = patch.needs.hearing
+        c = patch.needs.cognitive
+
+        # 1. If mobility has been flagged but step-free is still unknown → ask.
+        mobility_hit = m.wheelchair_user is True or m.avoid_long_walks is True
+        if (
+            "mobility" not in skipped_domains
+            and mobility_hit
+            and m.needs_step_free_route is None
+        ):
+            return self._question("mobility_step_free", language), "mobility_step_free"
 
         if (
+            "mobility" not in skipped_domains
+            and (m.needs_step_free_route is True or m.avoid_long_walks is True)
+            and m.wheelchair_user is None
+        ):
+            return self._question("mobility_wheelchair", language), "mobility_wheelchair"
+
+        # 2. Hearing → sign-language follow-up only if hearing was flagged.
+        if (
             "hearing" not in skipped_domains
-            and patch.needs.hearing.deaf_or_hard_of_hearing is True
-            and patch.needs.hearing.sign_language_user is None
+            and h.deaf_or_hard_of_hearing is True
+            and h.sign_language_user is None
         ):
             return self._question("hearing_sign", language), "hearing_sign"
 
-        if "mobility" not in skipped_domains and (
-            patch.needs.mobility.wheelchair_user is None or patch.needs.mobility.needs_step_free_route is None
+        # 3. Cognitive → simple-language only if cognitive was flagged.
+        cognitive_hit = (
+            c.needs_memory_support is True or c.reading_or_memory_difficulty_or_child is True
+        )
+        if (
+            "cognitive" not in skipped_domains
+            and c.reading_or_memory_difficulty_or_child is True
+            and c.needs_simple_language is None
+            and c.needs_memory_support is not True
         ):
-            return self._question("mobility", language), "mobility"
+            return self._question("cognitive_simple", language), "cognitive_simple"
 
-        if "cognitive" not in skipped_domains and (
-            patch.needs.cognitive.needs_simple_language is None
-            or patch.needs.cognitive.needs_memory_support is None
+        # 4. Memory reminders follow-up (lower priority — doesn't change route).
+        if (
+            "cognitive" not in skipped_domains
+            and c.needs_simple_language is True
+            and c.needs_memory_support is None
         ):
-            return self._question("cognitive", language), "cognitive"
+            return self._question("cognitive_memory", language), "cognitive_memory"
 
+        # Nothing hit and nothing outstanding → stop. Route-critical view:
+        # we do NOT keep probing cold domains the user never mentioned.
         return None, None
 
+    # Concise diff-style recap — list only what the user positively indicated.
+    # Walking every domain ("no blind support, no hearing support, …") is
+    # disrespectful and slow; users skip over long recaps anyway.
+    _RECAP_TEMPLATES: dict[str, dict[str, str]] = {
+        "en": {
+            "prefix": "Here is what I understood:",
+            "suffix": "Please confirm this before I plan your route.",
+            "empty": "No specific accessibility preferences noted. I'll use a standard route.",
+            "wheelchair": "wheelchair user",
+            "step_free": "step-free routing",
+            "vision": "vision support",
+            "hearing": "hearing support",
+            "sign": "sign-language style output",
+            "simple": "simple language",
+            "memory": "memory reminders",
+        },
+        "zh": {
+            "prefix": "好的——我了解到的是：",
+            "suffix": "请先确认这些信息，我再为你规划路线。",
+            "empty": "未记录特定无障碍偏好。我将使用标准路线。",
+            "wheelchair": "使用轮椅",
+            "step_free": "无台阶路线",
+            "vision": "视觉支持",
+            "hearing": "听力支持",
+            "sign": "手语风格输出",
+            "simple": "简明语言",
+            "memory": "记忆提醒",
+        },
+        "de": {
+            "prefix": "Verstanden — das habe ich notiert:",
+            "suffix": "Bitte bestätigen Sie dies, bevor ich Ihre Route plane.",
+            "empty": "Keine speziellen Barrierefreiheits-Präferenzen notiert. Ich verwende eine Standardroute.",
+            "wheelchair": "Rollstuhl",
+            "step_free": "stufenfreie Route",
+            "vision": "Seh-Unterstützung",
+            "hearing": "Hör-Unterstützung",
+            "sign": "gebärdensprachnahe Ausgabe",
+            "simple": "einfache Sprache",
+            "memory": "Erinnerungshilfen",
+        },
+    }
+
     def _confirmation_text(self, patch: ProfilePatch, language: str) -> str:
-        if language == "zh":
-            prefix = "我的理解是："
-            suffix = "这样对吗？"
-            vision = self._bool_statement(
-                patch.needs.vision.blind_or_low_vision,
-                yes_text="你需要盲人/低视力支持。",
-                no_text="你不需要盲人/低视力支持。",
-                unknown_text="视觉支持未说明或已跳过。",
-            )
-            hearing = self._bool_statement(
-                patch.needs.hearing.deaf_or_hard_of_hearing,
-                yes_text="你需要听障沟通支持。",
-                no_text="你不需要听障沟通支持。",
-                unknown_text="听力支持未说明或已跳过。",
-            )
-            sign = self._bool_statement(
-                patch.needs.hearing.sign_language_user,
-                yes_text="你希望使用手语风格文本输出。",
-                no_text="你不需要手语风格输出。",
-                unknown_text="手语偏好未说明或已跳过。",
-            )
-            mobility = self._bool_statement(
-                patch.needs.mobility.needs_step_free_route,
-                yes_text="你需要无台阶路线。",
-                no_text="你不需要无台阶路线。",
-                unknown_text="行动路线偏好未说明或已跳过。",
-            )
-            cognitive = self._bool_statement(
-                patch.needs.cognitive.needs_simple_language,
-                yes_text="你需要简明语言输出。",
-                no_text="标准语言输出可以接受。",
-                unknown_text="语言简化偏好未说明或已跳过。",
-            )
-            return f"{prefix}{vision} {hearing} {sign} {mobility} {cognitive} {suffix}"
+        lang = language if language in self._RECAP_TEMPLATES else "en"
+        tmpl = self._RECAP_TEMPLATES[lang]
 
-        if language == "de":
-            prefix = "Ich habe Folgendes verstanden: "
-            suffix = "Ist das korrekt?"
-            vision = self._bool_statement(
-                patch.needs.vision.blind_or_low_vision,
-                yes_text="Sie benötigen Unterstützung für blind/Sehbehinderung.",
-                no_text="Sie benötigen keine Unterstützung für blind/Sehbehinderung.",
-                unknown_text="Seh-Unterstützung wurde übersprungen oder nicht angegeben.",
-            )
-            hearing = self._bool_statement(
-                patch.needs.hearing.deaf_or_hard_of_hearing,
-                yes_text="Sie benötigen Unterstützung für Gehörlos/Schwerhörig.",
-                no_text="Sie benötigen keine Hör-Unterstützung.",
-                unknown_text="Hör-Unterstützung wurde übersprungen oder nicht angegeben.",
-            )
-            sign = self._bool_statement(
-                patch.needs.hearing.sign_language_user,
-                yes_text="Sie möchten gebärdensprachnahe Textausgabe.",
-                no_text="Sie benötigen keine gebärdensprachnahe Ausgabe.",
-                unknown_text="Gebärdensprach-Präferenz wurde übersprungen oder nicht angegeben.",
-            )
-            mobility = self._bool_statement(
-                patch.needs.mobility.needs_step_free_route,
-                yes_text="Sie benötigen stufenfreie Routen.",
-                no_text="Stufenfreie Routen sind nicht erforderlich.",
-                unknown_text="Mobilitätspräferenz wurde übersprungen oder nicht angegeben.",
-            )
-            cognitive = self._bool_statement(
-                patch.needs.cognitive.needs_simple_language,
-                yes_text="Sie möchten einfache Sprache.",
-                no_text="Standardsprache ist in Ordnung.",
-                unknown_text="Sprachvereinfachung wurde übersprungen oder nicht angegeben.",
-            )
-            return f"{prefix}{vision} {hearing} {sign} {mobility} {cognitive} {suffix}"
+        parts: list[str] = []
+        if patch.needs.mobility.wheelchair_user is True:
+            parts.append(tmpl["wheelchair"])
+        if patch.needs.mobility.needs_step_free_route is True:
+            parts.append(tmpl["step_free"])
+        if patch.needs.vision.blind_or_low_vision is True:
+            parts.append(tmpl["vision"])
+        if patch.needs.hearing.deaf_or_hard_of_hearing is True:
+            parts.append(tmpl["hearing"])
+        if patch.needs.hearing.sign_language_user is True:
+            parts.append(tmpl["sign"])
+        if patch.needs.cognitive.needs_simple_language is True:
+            parts.append(tmpl["simple"])
+        if patch.needs.cognitive.needs_memory_support is True:
+            parts.append(tmpl["memory"])
 
-        statements = [
-            self._bool_statement(
-                patch.needs.vision.blind_or_low_vision,
-                yes_text="You prefer blind/low-vision support.",
-                no_text="No blind/low-vision support was requested.",
-                unknown_text="Vision support was skipped or not specified.",
-            ),
-            self._bool_statement(
-                patch.needs.hearing.deaf_or_hard_of_hearing,
-                yes_text="You requested Deaf/HoH communication support.",
-                no_text="No Deaf/HoH support was requested.",
-                unknown_text="Hearing support was skipped or not specified.",
-            ),
-            self._bool_statement(
-                patch.needs.hearing.sign_language_user,
-                yes_text="You requested sign-language style text output.",
-                no_text="No sign-language style output was requested.",
-                unknown_text="Sign-language preference was skipped or not specified.",
-            ),
-            self._bool_statement(
-                patch.needs.mobility.needs_step_free_route,
-                yes_text="You requested step-free routing.",
-                no_text="Step-free routing is not required.",
-                unknown_text="Mobility routing preference was skipped or not specified.",
-            ),
-            self._bool_statement(
-                patch.needs.cognitive.needs_simple_language,
-                yes_text="You requested Simple English output.",
-                no_text="Standard language output is acceptable.",
-                unknown_text="Language simplicity preference was skipped or not specified.",
-            ),
-        ]
-        return "Here is what I understood: " + " ".join(statements) + " Is this correct?"
+        if not parts:
+            return tmpl["empty"]
 
-    @staticmethod
-    def _bool_statement(value: bool | None, yes_text: str, no_text: str, unknown_text: str) -> str:
-        if value is True:
-            return yes_text
-        if value is False:
-            return no_text
-        return unknown_text
+        joiner = "、" if lang == "zh" else ", "
+        return f"{tmpl['prefix']} {joiner.join(parts)}. {tmpl['suffix']}"
 
     def _normalize_language(self, language: str | None) -> str:
         if not language:
@@ -429,6 +496,43 @@ class ProfilerAgent:
     def _question(self, context: str, language: str) -> str:
         lang = self._normalize_language(language)
         return self._QUESTION_TEXTS.get(lang, self._QUESTION_TEXTS["en"])[context]
+
+    def _triage_prompt(self, language: str) -> str:
+        lang = self._normalize_language(language)
+        prompts = {
+            "en": (
+                "To personalize routes quickly, tell me which apply -- you can list several at once, "
+                "or say 'none' or 'skip': vision / screen reader; hearing / captions / sign language; "
+                "step-free route / wheelchair; simple language / reminders."
+            ),
+            "zh": (
+                "为了更快个性化路线，请告诉我哪些适用——可以一次说多个，"
+                "或回答'都不需要'/'跳过'："
+                "视觉 / 屏幕阅读；听力 / 字幕 / 手语；无台阶路线 / 轮椅；简明语言 / 提醒。"
+            ),
+            "de": (
+                "Um Routen schnell zu personalisieren, sagen Sie mir, was zutrifft -- Sie koennen mehreres "
+                "auf einmal nennen oder 'nichts' / 'ueberspringen' sagen: Sehen / Bildschirmleser; "
+                "Hoeren / Untertitel / Gebaerdensprache; stufenfreie Route / Rollstuhl; einfache Sprache / Erinnerungen."
+            ),
+        }
+        return prompts.get(lang, prompts["en"])
+
+    @staticmethod
+    def _generic_first_turn_context(user_message: str) -> str | None:
+        lowered = user_message.lower()
+        if re.search(
+            r"\bmobility\b|leg.?problem|legs|walking.?difficult|difficulty.?walking|行动|出行|腿|走路|mobilit|bein|gehproblem|laufen",
+            lowered,
+        ):
+            return "mobility_step_free"
+        if re.search(r"\bhearing\b|听力|hör|hoer", lowered):
+            return "hearing_sign"
+        if re.search(r"\bvision\b|视觉|seh", lowered):
+            return "vision"
+        if re.search(r"\bcognitive\b|memory support|simple language|认知|记忆|einfache sprache", lowered):
+            return "cognitive_simple"
+        return None
 
     def _context_yes_no_overlay(
         self, user_message: str, question_context: str | None
@@ -480,6 +584,9 @@ class ProfilerAgent:
                 }
             return {"needs": {"hearing": {"sign_language_user": False}}}
 
+        # "mobility" (legacy / triage-level) still sets both flags because the
+        # question is intentionally broad. For finer grain, callers should send
+        # either "mobility_wheelchair" or "mobility_step_free".
         if question_context == "mobility":
             return {
                 "needs": {
@@ -491,6 +598,32 @@ class ProfilerAgent:
                 }
             }
 
+        if question_context == "mobility_wheelchair":
+            # Wheelchair implies step-free; the inverse is NOT true.
+            if yes:
+                return {
+                    "needs": {
+                        "mobility": {
+                            "wheelchair_user": True,
+                            "needs_step_free_route": True,
+                            "avoid_long_walks": True,
+                        }
+                    }
+                }
+            return {"needs": {"mobility": {"wheelchair_user": False}}}
+
+        if question_context == "mobility_step_free":
+            return {
+                "needs": {
+                    "mobility": {
+                        "needs_step_free_route": yes,
+                        "avoid_long_walks": yes,
+                    }
+                }
+            }
+
+        # "cognitive" (legacy / triage-level) remains coupled. Prefer the
+        # split contexts below for individual follow-ups.
         if question_context == "cognitive":
             if yes:
                 return {
@@ -512,6 +645,31 @@ class ProfilerAgent:
                     }
                 }
             }
+
+        if question_context == "cognitive_simple":
+            if yes:
+                return {
+                    "needs": {
+                        "cognitive": {
+                            "needs_simple_language": True,
+                            "reading_or_memory_difficulty_or_child": True,
+                        }
+                    },
+                    "communication": {"output_mode": OutputMode.SIMPLE_TEXT.value},
+                }
+            return {"needs": {"cognitive": {"needs_simple_language": False}}}
+
+        if question_context == "cognitive_memory":
+            if yes:
+                return {
+                    "needs": {
+                        "cognitive": {
+                            "needs_memory_support": True,
+                            "reading_or_memory_difficulty_or_child": True,
+                        }
+                    }
+                }
+            return {"needs": {"cognitive": {"needs_memory_support": False}}}
 
         return {}
 
@@ -573,6 +731,10 @@ class ProfilerAgent:
         if compact in no_tokens:
             return "no"
         return None
+
+    @staticmethod
+    def _is_empty_patch(patch: ProfilePatch) -> bool:
+        return not patch.model_dump(exclude_none=True, exclude_defaults=True)
 
     def _enforce_output_mode_rules(self, patch_dict: dict[str, Any]) -> dict[str, Any]:
         merged = self._deep_merge_dicts({}, patch_dict)

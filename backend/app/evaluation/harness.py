@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.app.providers.llm_provider import MockLLMProvider
+from backend.app.providers.route_provider import MockRouteProvider
+from backend.app.services.multi_agent_orchestrator import JourneyOrchestrator
+from backend.app.services.planner_agent import PlannerAgent
 from backend.app.services.profiler_agent import ProfilerAgent
 
 
@@ -87,7 +90,15 @@ PERSONAS: list[PersonaCase] = [
 
 class EvaluationHarness:
     def __init__(self) -> None:
-        self.profiler = ProfilerAgent(llm_provider=MockLLMProvider())
+        llm_provider = MockLLMProvider()
+        route_provider = MockRouteProvider()
+        profiler = ProfilerAgent(llm_provider=llm_provider)
+        planner = PlannerAgent(llm_provider=llm_provider, route_provider=route_provider)
+        self.orchestrator = JourneyOrchestrator(
+            profiler_agent=profiler,
+            planner_agent=planner,
+            route_provider=route_provider,
+        )
 
     def run(self) -> dict:
         results = []
@@ -96,15 +107,16 @@ class EvaluationHarness:
         for persona in PERSONAS:
             patch: dict = {}
             skipped: list[str] = []
-            for utterance in persona.utterances:
-                output = self.profiler.process_turn(
+            for turn_count, utterance in enumerate(persona.utterances, start=1):
+                output = self.orchestrator.process_profile_turn(
                     user_message=utterance,
                     current_patch=patch,
                     skipped_domains=skipped,
+                    turn_count=turn_count,
                 )
-                patch = output.profile_patch.model_dump()
+                patch = output.profiler_output.profile_patch.model_dump()
 
-            profile = self.profiler.build_profile(patch)
+            profile = self.orchestrator.build_profile(patch)
             predicted = self._positive_labels(profile.model_dump())
             expected = persona.expected_positive_labels
             tp = len(predicted & expected)

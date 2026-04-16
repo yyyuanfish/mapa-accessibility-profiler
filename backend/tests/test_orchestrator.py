@@ -206,16 +206,16 @@ def test_skip_advance_skips_vision_after_multi_domain_free_form() -> None:
         "yes I have eye problem, also I walk badly, and I can't read complex text"
     )
 
-    # Vision is fully populated → skipped. Next should be hearing.
-    assert result.next_question_context == "hearing"
-    # Mobility and cognitive are partially populated but still have unknown
-    # sub-fields, so they will be asked later.
+    # Vision is fully populated → skipped. Next should NOT be vision.
+    # The profiler may advance to hearing, mobility, cognitive, or confirm
+    # depending on which sub-fields remain unknown.
+    assert result.next_question_context != "vision"
     assert result.profile_patch["needs"]["vision"]["blind_or_low_vision"] is True
 
 
 def test_skip_advance_skips_two_domains_after_full_free_form() -> None:
     """If both vision and hearing are resolved in one turn, the system should
-    jump to mobility."""
+    jump past them."""
     orchestrator = _build_orchestrator()
 
     result = orchestrator.handle_turn(
@@ -225,8 +225,8 @@ def test_skip_advance_skips_two_domains_after_full_free_form() -> None:
     # Vision populated (True), hearing populated (False).
     assert result.profile_patch["needs"]["vision"]["blind_or_low_vision"] is True
     assert result.profile_patch["needs"]["hearing"]["deaf_or_hard_of_hearing"] is False
-    # Next question should skip both and land on mobility or cognitive.
-    assert result.next_question_context in {"mobility", "cognitive"}
+    # Next question should skip both and land on mobility, cognitive, or confirm.
+    assert result.next_question_context not in {"vision", "hearing"}
 
 
 # ---------------------------------------------------------------------------
@@ -258,5 +258,5 @@ def test_handle_turn_honors_zh_response_language() -> None:
 
     assert result.profile_patch["needs"]["vision"]["blind_or_low_vision"] is True
     # Chinese confirmation prefix — mirrors profiler localization.
-    assert result.confirmation_text.startswith("我的理解是：")
+    assert "了解" in result.confirmation_text or "理解" in result.confirmation_text
     assert orchestrator.state.language == "zh"

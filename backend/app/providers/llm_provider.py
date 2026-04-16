@@ -19,7 +19,7 @@ class LLMProvider(ABC):
 class OllamaLLMProvider(LLMProvider):
     def __init__(
         self,
-        model: str = "llama3.1:8b",
+        model: str = "shmily_006/Qw3:4b_4bit",
         base_url: str = "http://localhost:11434",
         timeout_sec: int = 300,
     ) -> None:

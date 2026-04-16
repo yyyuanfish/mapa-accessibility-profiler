@@ -18,8 +18,8 @@ def test_end_to_end_mock_flow() -> None:
         "Please use simple english and reminders.",
     ]
 
-    for message in messages:
-        out = profiler.process_turn(user_message=message, current_patch=patch)
+    for turn_count, message in enumerate(messages, start=1):
+        out = profiler.process_turn(user_message=message, current_patch=patch, turn_count=turn_count)
         patch = out.profile_patch.model_dump()
 
     profile = profiler.build_profile(profile_patch=patch)

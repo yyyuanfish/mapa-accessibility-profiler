@@ -1,61 +1,53 @@
-# Multimodal Accessibility Profiling Agent
+# MAPA Profiler Agent
 
-Offline-first prototype for consent-first accessibility profiling and personalized journey planning.
+Offline-first prototype for **consent-first accessibility profiling** and **personalized journey planning**, built with a LangGraph multi-agent pipeline.
+
+## Architecture
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React + TypeScript + Vite + Shadcn/Radix UI |
+| API | FastAPI (REST + SSE streaming) |
+| Pipeline | LangGraph StateGraph (parallel node execution) |
+| LLM | Ollama (`qwen3.5:4b` text, `llava:7b` vision) or deterministic Mock |
+| Validation | Pydantic v2 strict models + JSON Schema v1 |
 
 ## Runtime Modes
-- `Mock (offline)`: fully local deterministic behavior, no model server, no API key.
-- `Ollama (local)`: local text + vision models (`/api/chat`) for richer responses, still no cloud API key.
 
-Notes:
-- This repo does not include a cloud LLM provider.
-- Ollama can require internet once for `ollama pull`, then inference is local.
+| Mode | Description |
+|------|-------------|
+| **Mock** (default) | Fully offline, deterministic — no model server needed |
+| **Ollama** | Local LLM via Ollama — no cloud API key |
+| **Backend** | React frontend connects to FastAPI over REST/SSE |
 
-## What The System Does
-- Runs a short consent-first dialogue to infer functional needs only.
-- Builds validated profile JSON (`accessibility_profile.v1`) with Pydantic + JSON Schema.
-- Personalizes route plans from fixture routes.
-- Supports two Streamlit flows:
-  - Chat-only
-  - Stepper (`Consent -> Profile -> Trip -> Review/Export`)
-- Supports optional consent-gated image hazard analysis (`stairs`, `slope`, `crowd`).
+## Pipeline
 
-## Implemented Accessibility Behaviors
-- Vision: stepwise text, avoid map-only phrasing, landmark-friendly guidance.
-- Hearing: avoid audio-only instructions and prefer visible text cues.
-- Sign users: supports `sign_gloss_text` output mode.
-- Mobility: step-free preference and strong stair alerts.
-- Cognitive or child-focused needs: switches to simple language mode with reminders/checklists.
+### Profile Pipeline (multi-turn dialogue)
+```
+consent_guard → profiler → profile_manager → conversation_orchestrator → END
+```
 
-## Language Support
-- UI and plan output support `English`, `中文`, `Deutsch`.
-- `Auto` currently defaults to English.
-- Short answers supported: `yes/no`, `有/没有`, `是/否`, `ja/nein`, `skip`.
+### Planning Pipeline (parallel fan-out)
+```
+input_validator → [ route_reasoner || image_hazard ] → hazard_fusion → planner → synthesis → END
+```
 
-## Image Hazard Flow
-- Explicit consent required before any image analysis.
-- Source can be:
-  - Upload (`.png`, `.jpg`, `.jpeg`)
-  - Built-in sample images
-- Analysis is manually triggered via button (`Analyze image hazards`), not auto-run on upload.
-- Sample fixtures use fixed demo mappings:
-  - `default_stairs.png` -> stairs high
-  - `default_slope.png` -> slope high
-  - `default_crowd.png` -> crowd high
-  - `default_none.png` -> all none
+`route_reasoner` and `image_hazard` run in parallel via LangGraph.
+See interactive diagram: `docs/pipeline_workflow.html`
 
-## Project Structure
-- `backend/app/models.py`
-- `backend/app/schemas/accessibility_profile.v1.schema.json`
-- `backend/app/providers/llm_provider.py`
-- `backend/app/providers/route_provider.py`
-- `backend/app/providers/image_provider.py`
-- `backend/app/services/profiler_agent.py`
-- `backend/app/services/planner_agent.py`
-- `backend/app/evaluation/harness.py`
-- `frontend/app.py`
-- `backend/tests/`
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/routes` | List route fixtures |
+| POST | `/api/profile/turn` | Profile dialogue turn (sync) |
+| POST | `/api/profile/stream` | Profile dialogue turn (SSE) |
+| POST | `/api/plan` | Create journey plan (sync) |
+| POST | `/api/plan/stream` | Create journey plan (SSE, shows parallel progress) |
 
 ## Setup
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -63,45 +55,83 @@ pip install -r requirements.txt
 ```
 
 ## Run
+
 ```bash
-pytest -q
-streamlit run frontend/app.py
+# Backend (port 8000)
+uvicorn backend.app.api:app --reload --port 8000
+
+# Frontend (port 8080)
+cd frontend && npm install && npm run dev
 ```
 
 ## Use Ollama (Optional)
-1. Start Ollama:
+
 ```bash
 ollama serve
+ollama pull qwen3.5:4b    # text model (3.4 GB)
+ollama pull llava:7b       # vision model (4.7 GB)
 ```
-2. Pull models:
-```bash
-ollama pull llama3.1:8b
-ollama pull llava:7b
-```
-3. In the Streamlit sidebar set:
-- `LLM backend` to `Ollama (local)`
-- `Ollama base URL` to `http://127.0.0.1:11434` or `http://localhost:11434`
-- `Text model` and `Vision model` names exactly as `ollama list`
 
-Fallback behavior:
-- If Ollama is unreachable or a request fails, the app falls back to mock providers for that turn/plan.
+Then set `mode: "ollama"` in API requests, or select "Ollama" / "Backend" mode in the frontend.
 
-## Troubleshooting
-- Check server:
+## Tests
+
 ```bash
-curl http://127.0.0.1:11434/api/tags
+pytest -q
 ```
-- If `ollama serve` says `address already in use`, Ollama is already running.
-- If image analysis is slow, this is often model load latency on first vision call.
-- If image analysis errors, check model name and ensure it supports image input.
 
 ## Evaluation Harness
+
 ```bash
 python -m backend.app.evaluation.run_eval
 ```
 
-## Safety Notes
-- No medical diagnosis inference.
-- Functional needs only, with skip allowed.
-- Confirm-understanding recap in profiler turns.
-- Planner claims only what route fixture metadata supports.
+Runs 5 scripted personas (Blind, Deaf/sign, Wheelchair, Cognitive, Mixed) through the profiler and reports precision/recall metrics.
+
+## Project Structure
+
+```
+backend/
+  app/
+    api.py                          # FastAPI endpoints (REST + SSE)
+    models.py                       # Pydantic v2 models
+    agents/
+      state.py                      # LangGraph TypedDict state
+      profile_graph.py              # Profile pipeline (4 nodes)
+      planning_graph.py             # Planning pipeline (6 nodes, parallel)
+    services/
+      profiler_agent.py             # Dialogue agent
+      planner_agent.py              # Plan generation agent
+      multi_agent_orchestrator.py   # JourneyOrchestrator (delegates to graphs)
+    providers/
+      llm_provider.py               # Mock + Ollama LLM providers
+      route_provider.py             # Mock route fixtures
+      image_provider.py             # Mock + Ollama image analysis
+    utils/
+      json_extract.py               # Robust JSON extraction
+    evaluation/
+      harness.py                    # Evaluation framework
+  tests/
+frontend/
+  src/
+    components/                     # React UI components
+    lib/
+      runtime-context.tsx           # Mode/language state
+      backend-api.ts                # Backend API client + schema translation
+docs/
+  pipeline_workflow.html            # Interactive pipeline diagram
+  specs/                            # Phase specification documents
+skills/                             # Agent responsibility definitions
+```
+
+## Supported Accessibility Behaviors
+
+- **Vision**: stepwise text, avoid map-only references, landmark-friendly guidance
+- **Hearing**: avoid audio-only cues, provide visible/text alternatives
+- **Sign users**: `sign_gloss_text` output mode
+- **Mobility**: step-free preference, strong stair alerts, route switching
+- **Cognitive**: simple language mode, reminders, micro-step checklists
+
+## Language Support
+
+English, 中文, Deutsch

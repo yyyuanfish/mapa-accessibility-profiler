@@ -123,6 +123,11 @@ class ImageHazardsSummary(StrictBaseModel):
     stairs: RiskLevel = RiskLevel.NONE
     slope: RiskLevel = RiskLevel.NONE
     crowd: RiskLevel = RiskLevel.NONE
+    scene_summary: str | None = None
+    visible_objects: list[str] = Field(default_factory=list)
+    accessibility_cues: list[str] = Field(default_factory=list)
+    reasoning_steps: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -133,3 +138,47 @@ class PersonalizedPlan(StrictBaseModel):
     checklist: list[str]
     if_you_get_lost: list[str]
     preferences_applied: list[str]
+
+
+class AgentTraceStep(StrictBaseModel):
+    agent_name: str
+    role: str
+    summary: str
+    input_keys: list[str] = Field(default_factory=list)
+    output_keys: list[str] = Field(default_factory=list)
+    key_findings: list[str] = Field(default_factory=list)
+
+
+class AgentTrace(StrictBaseModel):
+    workflow: str
+    steps: list[AgentTraceStep] = Field(default_factory=list)
+
+
+class RouteSelectionDecision(StrictBaseModel):
+    requested_route_id: str
+    requested_route_name: str
+    selected_route_id: str
+    selected_route_name: str
+    switched_to_step_free: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    alerts: list[str] = Field(default_factory=list)
+
+
+class HazardFusionSummary(StrictBaseModel):
+    source: str
+    highlights: list[str] = Field(default_factory=list)
+
+
+class MultiAgentProfileResult(StrictBaseModel):
+    profiler_output: ProfilerAgentOutput
+    draft_profile: AccessibilityProfile
+    trace: AgentTrace
+    agent_reply: str
+
+
+class MultiAgentPlanResult(StrictBaseModel):
+    route_decision: RouteSelectionDecision
+    hazard_summary: HazardFusionSummary
+    plan: PersonalizedPlan
+    trace: AgentTrace
+    agent_reply: str

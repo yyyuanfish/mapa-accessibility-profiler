@@ -228,9 +228,17 @@ class PlannerAgent:
                 alerts.append("Image hazard note: possible slope/steep segment.")
             if hazards.crowd in {"medium", "high"}:
                 alerts.append("Image hazard note: crowd risk near route.")
+            if hazards.scene_summary:
+                checklist.append(f"Vision feedback: {hazards.scene_summary}")
+            if hazards.accessibility_cues:
+                checklist.append("Vision cues: " + ", ".join(hazards.accessibility_cues[:3]) + ".")
+            if hazards.visible_objects:
+                checklist.append("Visible objects: " + ", ".join(hazards.visible_objects[:4]) + ".")
             if hazards.notes:
                 checklist.extend(hazards.notes)
             preferences_applied.append("image_hazard_stub")
+            if hazards.accessibility_cues or hazards.visible_objects:
+                preferences_applied.append("symbolic_vision_feedback")
 
         summary = (
             f"Personalized plan for {route.name}. "
@@ -324,6 +332,7 @@ class PlannerAgent:
                 "mobility_step_free_preference": "已启用行动无台阶偏好",
                 "simple_english_mode": "已启用简明语言模式",
                 "image_hazard_stub": "已应用图像风险提示",
+                "symbolic_vision_feedback": "已应用结构化视觉反馈",
             }
             return mapping.get(base, base)
         if language == "de":
@@ -336,6 +345,7 @@ class PlannerAgent:
                 "mobility_step_free_preference": "Stufenfreie Mobilitätspräferenz aktiviert",
                 "simple_english_mode": "einfache Sprache aktiviert",
                 "image_hazard_stub": "Bild-Risiko-Hinweis angewendet",
+                "symbolic_vision_feedback": "strukturierte visuelle Rückmeldung angewendet",
             }
             return mapping.get(base, base)
         return base
@@ -369,6 +379,9 @@ class PlannerAgent:
                 return exact[text]
 
             translated = text
+            translated = translated.replace("Vision feedback:", "视觉反馈：")
+            translated = translated.replace("Vision cues:", "视觉线索：")
+            translated = translated.replace("Visible objects:", "可见对象：")
             translated = re.sub(r"^Step\s+(\d+):", r"第\1步：", translated)
             translated = re.sub(
                 r"\((\d+)m,\s*about\s*(\d+)\s*min\)\.",
@@ -420,6 +433,9 @@ class PlannerAgent:
                 return exact[text]
 
             translated = text
+            translated = translated.replace("Vision feedback:", "Visuelles Feedback:")
+            translated = translated.replace("Vision cues:", "Visuelle Hinweise:")
+            translated = translated.replace("Visible objects:", "Sichtbare Objekte:")
             translated = re.sub(r"^Step\s+(\d+):", r"Schritt \1:", translated)
             translated = re.sub(
                 r"\((\d+)m,\s*about\s*(\d+)\s*min\)\.",

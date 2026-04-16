@@ -47,10 +47,17 @@ class OllamaImageProvider(ImageProvider):
     def summarize_hazards(self, image_bytes: bytes) -> ImageHazardsSummary:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
         prompt = (
-            "You are an accessibility hazard detector. "
+            "You are an accessibility vision feedback agent. "
             "Return ONLY JSON with this schema: "
-            '{"stairs":"none|low|medium|high","slope":"none|low|medium|high","crowd":"none|low|medium|high","notes":["..."]}. '
-            "Be conservative and avoid hallucination."
+            '{"stairs":"none|low|medium|high","slope":"none|low|medium|high","crowd":"none|low|medium|high",'
+            '"scene_summary":"...",'
+            '"visible_objects":["..."],'
+            '"accessibility_cues":["..."],'
+            '"reasoning_steps":["..."],'
+            '"evidence":["..."],'
+            '"notes":["..."]}. '
+            "Use conservative, grounded visual descriptions only. "
+            "Do not claim that a place is accessible unless the image directly supports a narrow visual cue."
         )
         payload = {
             "model": self.model,
@@ -100,12 +107,32 @@ class OllamaImageProvider(ImageProvider):
                 return RiskLevel(raw)
             return RiskLevel.LOW
 
+        scene_summary_raw = payload.get("scene_summary")
+        scene_summary = str(scene_summary_raw).strip() if scene_summary_raw not in {None, ""} else None
+
+        visible_objects_raw = payload.get("visible_objects", [])
+        visible_objects = self._normalize_string_list(visible_objects_raw)
+
+        accessibility_cues_raw = payload.get("accessibility_cues", [])
+        accessibility_cues = self._normalize_string_list(accessibility_cues_raw)
+
+        reasoning_steps_raw = payload.get("reasoning_steps", [])
+        reasoning_steps = self._normalize_string_list(reasoning_steps_raw)
+
+        evidence_raw = payload.get("evidence", [])
+        evidence = self._normalize_string_list(evidence_raw)
+
         notes_raw = payload.get("notes", [])
-        notes = [str(note) for note in notes_raw] if isinstance(notes_raw, list) else []
+        notes = self._normalize_string_list(notes_raw)
         return ImageHazardsSummary(
             stairs=level_of("stairs"),
             slope=level_of("slope"),
             crowd=level_of("crowd"),
+            scene_summary=scene_summary,
+            visible_objects=visible_objects,
+            accessibility_cues=accessibility_cues,
+            reasoning_steps=reasoning_steps,
+            evidence=evidence,
             notes=notes,
         )
 
@@ -134,6 +161,49 @@ class OllamaImageProvider(ImageProvider):
             return RiskLevel.LOW
 
         short_note = " ".join(content.split())[:180]
+        visible_objects = self._terms_present(
+            lowered,
+            [
+                "stairs",
+                "staircase",
+                "ramp",
+                "handrail",
+                "elevator",
+                "queue barrier",
+                "sidewalk",
+                "doorway",
+                "sign",
+                "platform",
+            ],
+        )
+        accessibility_cues = self._terms_present(
+            lowered,
+            [
+                "stairs visible",
+                "ramp-like path",
+                "handrail visible",
+                "elevator sign visible",
+                "narrow passage",
+                "crowded walkway",
+            ],
+        )
+        if not accessibility_cues:
+            if any(term in lowered for term in {"stairs", "stair", "steps", "staircase"}):
+                accessibility_cues.append("stairs visible")
+            if any(term in lowered for term in {"slope", "incline", "hill", "ramp"}):
+                accessibility_cues.append("sloped or ramp-like surface visible")
+            if any(term in lowered for term in {"crowd", "crowded", "busy", "queue", "many people"}):
+                accessibility_cues.append("crowd near the visible path")
+        evidence = []
+        if visible_objects:
+            evidence.append("visible objects: " + ", ".join(visible_objects[:4]))
+        if accessibility_cues:
+            evidence.append("accessibility cues: " + ", ".join(accessibility_cues[:4]))
+        reasoning_steps = [
+            "Captured a visual scene description from the image.",
+            "Extracted symbolic objects and accessibility-related cues.",
+            f"Mapped cues to hazard levels: stairs={stairs_level().value}, slope={slope_level().value}, crowd={crowd_level().value}.",
+        ]
         notes = [
             "Parsed from non-JSON vision output.",
             short_note or "No additional notes.",
@@ -142,8 +212,36 @@ class OllamaImageProvider(ImageProvider):
             stairs=stairs_level(),
             slope=slope_level(),
             crowd=crowd_level(),
+            scene_summary=short_note or None,
+            visible_objects=visible_objects,
+            accessibility_cues=accessibility_cues,
+            reasoning_steps=reasoning_steps,
+            evidence=evidence,
             notes=notes,
         )
+
+    @staticmethod
+    def _normalize_string_list(raw: object) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            value = str(item).strip()
+            key = value.lower()
+            if not value or key in seen:
+                continue
+            seen.add(key)
+            normalized.append(value)
+        return normalized[:6]
+
+    @staticmethod
+    def _terms_present(content: str, terms: list[str]) -> list[str]:
+        results: list[str] = []
+        for term in terms:
+            if term in content:
+                results.append(term)
+        return results
 
 
 class MockImageProvider(ImageProvider):
@@ -154,8 +252,40 @@ class MockImageProvider(ImageProvider):
         stairs = RiskLevel.HIGH if length % 3 == 0 else RiskLevel.LOW
         slope = RiskLevel.MEDIUM if length % 5 == 0 else RiskLevel.LOW
         crowd = RiskLevel.MEDIUM if length % 2 == 0 else RiskLevel.LOW
+        visible_objects: list[str] = []
+        accessibility_cues: list[str] = []
+        if stairs in {RiskLevel.MEDIUM, RiskLevel.HIGH}:
+            visible_objects.append("stairs")
+            accessibility_cues.append("stairs visible")
+        if slope in {RiskLevel.MEDIUM, RiskLevel.HIGH}:
+            visible_objects.append("ramp")
+            accessibility_cues.append("sloped path visible")
+        if crowd in {RiskLevel.MEDIUM, RiskLevel.HIGH}:
+            visible_objects.append("queue")
+            accessibility_cues.append("crowd near the walkway")
+        evidence = []
+        if visible_objects:
+            evidence.append("visible objects: " + ", ".join(visible_objects[:4]))
+        if accessibility_cues:
+            evidence.append("accessibility cues: " + ", ".join(accessibility_cues[:4]))
         notes = [
             "Mock image analysis only.",
             "Use route metadata as the primary accessibility signal.",
         ]
-        return ImageHazardsSummary(stairs=stairs, slope=slope, crowd=crowd, notes=notes)
+        scene_summary = "Mock symbolic vision feedback generated from uploaded image bytes."
+        reasoning_steps = [
+            "Accepted the captured image and converted it to symbolic vision feedback.",
+            "Estimated conservative hazard levels from deterministic mock rules.",
+            f"Prepared plan-ready hazard summary: stairs={stairs.value}, slope={slope.value}, crowd={crowd.value}.",
+        ]
+        return ImageHazardsSummary(
+            stairs=stairs,
+            slope=slope,
+            crowd=crowd,
+            scene_summary=scene_summary,
+            visible_objects=visible_objects,
+            accessibility_cues=accessibility_cues,
+            reasoning_steps=reasoning_steps,
+            evidence=evidence,
+            notes=notes,
+        )

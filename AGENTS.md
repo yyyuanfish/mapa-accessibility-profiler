@@ -7,11 +7,50 @@ Core outcomes:
 - Run a short consent-first profiling dialogue (functional needs only).
 - Produce validated JSON user profiles (JSON Schema v1 + Pydantic).
 - Personalize route guidance using route fixture metadata.
-- Support Streamlit chat and stepper flows.
+- Orchestrate multi-agent pipelines via **LangGraph** with parallel execution.
+- Expose REST + SSE streaming APIs via **FastAPI**.
+- Serve a **React / TypeScript** frontend (Vite + Shadcn/Radix UI).
 - Keep multimodal image analysis optional and explicitly consent-gated.
-- Support both runtime modes in one codebase:
-  - Deterministic offline `Mock` mode
-  - Local `Ollama` mode for text and vision models (no cloud API key)
+- Support three runtime modes:
+  - **Mock** — deterministic offline, no model server
+  - **Ollama** — local LLM (`qwen3.5:4b`) + vision (`llava:7b`), no cloud API key
+  - **Backend** — React frontend calls FastAPI endpoints
+
+## Pipeline Architecture
+
+### Profile Pipeline (multi-turn dialogue)
+```
+consent_guard_node
+      |
+profiler_node           <- ProfilerAgent.process_turn()
+      |
+profile_manager_node    <- ProfilerAgent.build_profile()
+      |
+conversation_orchestrator_node
+      |
+     END
+```
+
+### Planning Pipeline (single-shot, parallel fan-out)
+```
+input_validator_node
+      |
+ +---------+---------+
+ |                   |
+route_reasoner    image_hazard     <- parallel
+ |                   |
+ +---------+---------+
+           |
+  hazard_fusion_node
+           |
+     planner_node       <- PlannerAgent.create_plan()
+           |
+    synthesis_node
+           |
+          END
+```
+
+See `docs/pipeline_workflow.html` for the interactive diagram.
 
 ## Product Rules
 - Never infer medical diagnoses.
@@ -37,31 +76,29 @@ The system must explicitly support:
 A change is complete only if:
 - All profile and plan schemas validate.
 - `pytest -q` passes.
-- Streamlit app starts and supports both modes:
-  - Chat-only
-  - Stepper: Consent -> Profile -> Trip -> Review/Export
-- Streamlit image flow is consent-gated and manually triggered (not auto-run on upload).
-- Route fixtures include:
-  - `route_with_stairs`
-  - `step_free_route`
-  - `long_walk_route`
-- Built-in sample images include:
-  - `default_stairs.png`
-  - `default_slope.png`
-  - `default_crowd.png`
-  - `default_none.png`
+- FastAPI server starts and all endpoints respond (`/api/health`, `/api/routes`, `/api/profile/turn`, `/api/profile/stream`, `/api/plan`, `/api/plan/stream`).
+- React frontend builds and connects to the backend in "Backend" mode.
+- SSE streaming shows per-node progress for both pipelines.
+- Route fixtures include: `route_with_stairs`, `step_free_route`, `long_walk_route`.
 - Evaluation harness runs all personas and returns precision/recall metrics.
-- README includes setup and run instructions.
 
 ## Standard Commands
-- `python -m venv .venv`
-- `source .venv/bin/activate`
-- `pip install -r requirements.txt`
-- `pytest -q`
-- `streamlit run frontend/app.py`
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest -q
+
+# Backend
+uvicorn backend.app.api:app --reload --port 8000
+
+# Frontend
+cd frontend && npm install && npm run dev
+```
 
 ## Engineering Notes
 - Keep schema versioning explicit (`accessibility_profile.v1`).
 - Preserve deterministic behavior for mock providers to keep tests stable.
+- LangGraph `TypedDict` state uses `Annotated[list, operator.add]` for parallel-safe trace merging.
+- Default Ollama model: `qwen3.5:4b` (text), `llava:7b` (vision).
 - Keep documentation aligned with actual code paths and fallback behavior.
-- Keep generated text concise and functional.

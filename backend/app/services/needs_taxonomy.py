@@ -38,6 +38,18 @@ from backend.app.utils.dict_merge import deep_merge_dicts
 # negatives first so "no vision needs" wins over "vision" appearing as a
 # substring of "television" or similar.
 
+# Blanket "no needs" phrases — if the user says something like "no special
+# needs" or "standard is fine", all domains should be set to False.
+_BLANKET_NO_NEEDS: list[str] = [
+    # EN
+    "no special needs", "no accessibility needs", "nothing special",
+    "all good", "standard is fine", "no needs",
+    # ZH
+    "都不需要", "没有特殊需求", "不需要任何帮助",
+    # DE
+    "keine besonderen bedarfe", "alles gut", "standard ist okay",
+]
+
 NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
     "vision": {
         "positive": [
@@ -284,6 +296,27 @@ def extract_all_domains(text: str) -> dict[str, Any]:
     rules (e.g., wheelchair implies step-free + avoid long walks, simple
     language implies ``output_mode=simple_text``).
     """
+    # Check for blanket "no needs" phrases first. If present, set all
+    # primary fields to False so the caller can skip all follow-up questions.
+    if any_phrase_in(text, _BLANKET_NO_NEEDS):
+        return {
+            "needs": {
+                "vision": {"blind_or_low_vision": False, "prefers_landmarks": False},
+                "hearing": {"deaf_or_hard_of_hearing": False, "sign_language_user": False},
+                "mobility": {
+                    "wheelchair_user": False,
+                    "needs_step_free_route": False,
+                    "avoid_long_walks": False,
+                },
+                "cognitive": {
+                    "needs_simple_language": False,
+                    "needs_memory_support": False,
+                    "reading_or_memory_difficulty_or_child": False,
+                },
+            },
+            "communication": {"output_mode": OutputMode.STANDARD_TEXT.value},
+        }
+
     needs: dict[str, Any] = {}
     communication: dict[str, Any] = {}
 
