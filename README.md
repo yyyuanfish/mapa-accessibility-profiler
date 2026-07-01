@@ -8,6 +8,12 @@ MAPA (Multimodal multi-Agent Profiling for Accessibility) is the prototype devel
 
 The system asks the user for permission, collects practical needs for a route, such as step-free access, spoken or written guidance, simple wording, and landmark support, and stores them as a checked JSON profile. The confirmed profile is then used to adapt fixed route examples and add selected City of Zurich open data. This repository contains the code and evaluation files used for thesis review.
 
+## Live Demo
+
+The frontend is deployed at [https://mapaiprofileragent.vercel.app](https://mapaiprofileragent.vercel.app).
+
+The public demo runs in Mock mode by default, so it can be tried without a local model server or backend. Backend mode is intended for local testing with the Python API.
+
 ## System Overview
 
 ![MAPA architecture overview](docs/assets/mapa-architecture.png)
