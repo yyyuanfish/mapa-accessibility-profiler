@@ -6,7 +6,7 @@
 
 MAPA (Multimodal multi-Agent Profiling for Accessibility) is the prototype developed for the thesis **Accessibility Profiling and Personalized Journey Planning: A Multimodal Multi-Agent LLM-Based Framework**.
 
-The system runs a short consent-first profiling dialogue, stores route-relevant access needs as a validated JSON profile, and applies the confirmed profile to fixed route examples and selected City of Zurich open data. The repository is prepared as the code and artifact package for thesis review.
+The system asks the user for permission, collects practical needs for a route, such as step-free access, spoken or written guidance, simple wording, and landmark support, and stores them as a checked JSON profile. The confirmed profile is then used to adapt fixed route examples and add selected City of Zurich open data. This repository contains the code and evaluation files used for thesis review.
 
 ## System Overview
 
@@ -36,7 +36,7 @@ git push origin thesis-submission-2026-07-01
 
 ## Main Features
 
-- consent-first profiling dialogue with skip and confirmation steps
+- short profiling dialogue with permission, skip, and confirmation steps
 - validated `accessibility_profile` JSON representation for vision, hearing, mobility, and cognition needs
 - deterministic mock mode for offline evaluation
 - optional local text and vision model providers

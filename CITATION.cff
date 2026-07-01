@@ -17,4 +17,4 @@ keywords:
   - multi-agent-systems
   - computational-linguistics
   - Zurich
-abstract: "MAPA is a thesis prototype for consent-first accessibility profiling and personalized journey planning with validated profiles, fixed route fixtures, optional local model providers, and generated evaluation artifacts."
+abstract: "MAPA is a thesis prototype for accessibility profiling and personalized journey planning. It asks for permission, collects practical route needs, stores them as checked JSON profiles, and applies confirmed profiles to fixed route examples and selected Zurich open data."

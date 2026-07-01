@@ -30,7 +30,7 @@ For later development, use a new branch, a new release tag, or a separate reposi
 
 Use the following repository settings on GitHub:
 
-- Description: `Thesis prototype for consent-first accessibility profiling and personalized journey planning.`
+- Description: `Thesis prototype for accessibility profiling and personalized journey planning with checked user profiles and Zurich route data.`
 - Website: `https://github.com/yyyuanfish/mapa-accessibility-profiler/releases/tag/thesis-submission-2026-07-01`
 - Topics: `accessibility`, `journey-planning`, `multimodal`, `multi-agent-systems`, `computational-linguistics`, `zurich`
 - Social preview image: upload `docs/assets/mapa-architecture.png`
