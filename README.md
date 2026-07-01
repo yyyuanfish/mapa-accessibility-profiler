@@ -1,7 +1,7 @@
 # MAPA: Accessibility Profiling and Personalized Journey Planning
 
 <p align="center">
-  <img src="docs/assets/mapa-ui-hero.png" alt="MAPA user interface" width="420">
+  <img src="docs/assets/mapa-ui-hero.png" alt="MAPA user interface" width="860">
 </p>
 
 MAPA (Multimodal multi-Agent Profiling for Accessibility) is the prototype developed for the thesis **Accessibility Profiling and Personalized Journey Planning: A Multimodal Multi-Agent LLM-Based Framework**.
