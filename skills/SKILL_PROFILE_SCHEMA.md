@@ -4,7 +4,7 @@
 Define and validate profile data with both JSON Schema v1 and Pydantic.
 
 ## Required Fields
-- `schema_version` fixed to `accessibility_profile.v1`
+- `schema_version` fixed to `accessibility_profile`
 - `consent_to_profile`
 - `needs.vision.blind_or_low_vision`
 - `needs.vision.prefers_landmarks`
@@ -23,7 +23,7 @@ Define and validate profile data with both JSON Schema v1 and Pydantic.
 
 ## Steps
 1. Implement strict Pydantic models in `backend/app/models.py`.
-2. Mirror constraints in `backend/app/schemas/accessibility_profile.v1.schema.json`.
+2. Mirror constraints in `backend/app/schemas/accessibility_profile.schema.json`.
 3. Add tests that validate model dumps against JSON Schema.
 
 ## Quality Checks

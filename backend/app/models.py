@@ -67,7 +67,7 @@ class ConfidenceScores(StrictBaseModel):
 
 
 class AccessibilityProfile(StrictBaseModel):
-    schema_version: str = "accessibility_profile.v1"
+    schema_version: str = "accessibility_profile"
     consent_to_profile: bool = True
     needs: Needs = Field(default_factory=Needs)
     communication: Communication = Field(default_factory=Communication)
@@ -94,12 +94,20 @@ class ProfilerAgentOutput(StrictBaseModel):
     confirmation_text: str
 
 
+class SpeechTranscription(StrictBaseModel):
+    transcript: str
+    language: str = "en"
+    provider: str = "mock"
+    duration_sec: Optional[float] = None
+
+
 class RouteStep(StrictBaseModel):
     instruction: str
     distance_m: int = Field(ge=0)
     duration_min: int = Field(ge=0)
     has_stairs: bool = False
     audio_only_cue: bool = False
+    visual_only_cue: bool = False
     landmark: Optional[str] = None
 
 
@@ -138,6 +146,9 @@ class PersonalizedPlan(StrictBaseModel):
     checklist: list[str]
     if_you_get_lost: list[str]
     preferences_applied: list[str]
+    # [lat, lon] pairs for each route step — populated from ROUTE_STEP_COORDS;
+    # empty list when no coordinates are registered for the selected route.
+    route_coords: list[list[float]] = Field(default_factory=list)
 
 
 class AgentTraceStep(StrictBaseModel):
@@ -182,3 +193,43 @@ class MultiAgentPlanResult(StrictBaseModel):
     plan: PersonalizedPlan
     trace: AgentTrace
     agent_reply: str
+
+
+# ── Zurich Open Data models ────────────────────────────────────────────────────
+
+class ZurichBarrier(StrictBaseModel):
+    """One ZüriACT accessibility barrier point."""
+    lat: float
+    lon: float
+    category: str
+    severity: int = Field(ge=1, le=5, description="1=passable … 5=impassable")
+    severity_label: str
+    tags: str = ""
+    quartier: str = ""
+    temporary: bool = False
+    distance_m: int = Field(default=0, ge=0)
+
+
+class ZurichAmenity(StrictBaseModel):
+    """Nearby accessibility amenity (toilet or parking)."""
+    lat: float
+    lon: float
+    name: str
+    amenity_type: str  # "toilet" | "parking"
+    wheelchair_accessible: bool = True
+    opening_hours: str = ""
+    free: bool = True
+    address: str = ""
+    distance_m: int = Field(default=0, ge=0)
+
+
+class ZurichDataSummary(StrictBaseModel):
+    """Summary of Zurich open data retrieved for a planning request."""
+    barriers_fetched: int = 0
+    toilets_fetched: int = 0
+    parking_fetched: int = 0
+    barrier_score: dict = Field(default_factory=dict)
+    nearest_toilet: Optional[ZurichAmenity] = None
+    nearest_parking: Optional[ZurichAmenity] = None
+    data_source: str = "zurich_ogd_wfs"
+    fetch_errors: list[str] = Field(default_factory=list)

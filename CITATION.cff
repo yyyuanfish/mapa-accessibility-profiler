@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this thesis prototype or its evaluation artifacts, please cite the repository release."
+title: "MAPA: Accessibility Profiling and Personalized Journey Planning"
+type: software
+authors:
+  - family-names: Yu
+    given-names: Yuan
+repository-code: "https://github.com/yyyuanfish/mapa-accessibility-profiler"
+url: "https://github.com/yyyuanfish/mapa-accessibility-profiler"
+license: "CC-BY-NC-4.0"
+version: "thesis-submission-2026-07-01"
+date-released: "2026-07-01"
+keywords:
+  - accessibility
+  - journey-planning
+  - multimodal
+  - multi-agent-systems
+  - computational-linguistics
+  - Zurich
+abstract: "MAPA is a thesis prototype for consent-first accessibility profiling and personalized journey planning with validated profiles, fixed route fixtures, optional local model providers, and generated evaluation artifacts."

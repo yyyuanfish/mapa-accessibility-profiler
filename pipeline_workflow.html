@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MAPA — Extended Multi-Agent Architecture</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e5e7eb;
+      padding: 2rem;
+    }
+    h1 { text-align: center; margin-bottom: 0.4rem; font-size: 1.75rem; color: #fff; }
+    h2 { text-align: center; margin-bottom: 2rem; font-size: 0.95rem; color: #94a3b8; font-weight: 400; }
+    .section { margin-bottom: 3rem; }
+    .section h3 {
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #2b3444;
+      color: #60a5fa;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      padding: 1.5rem 1rem;
+      background: #151b26;
+      border-radius: 12px;
+      border: 1px solid #263243;
+      overflow-x: auto;
+    }
+    .note {
+      margin: 1rem auto 0;
+      background: #121927;
+      border: 1px solid #273449;
+      border-radius: 12px;
+      padding: 0.9rem 1.1rem;
+      color: #b7c5d8;
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+    .note cite { color: #7dd3fc; font-style: normal; font-size: 0.83rem; }
+    .status-legend {
+      display: flex;
+      gap: 1.2rem;
+      justify-content: center;
+      margin: 0 0 2.5rem;
+      flex-wrap: wrap;
+    }
+    .sl-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      color: #a8b2c1;
+    }
+    .sl-dot {
+      width: 13px; height: 13px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .legend {
+      display: flex;
+      gap: 1.4rem;
+      justify-content: center;
+      margin-top: 1.1rem;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 0.45rem;
+      font-size: 0.82rem; color: #a8b2c1;
+    }
+    .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+    footer {
+      text-align: center; margin-top: 2.5rem;
+      color: #64748b; font-size: 0.78rem; line-height: 1.6;
+    }
+    code {
+      background: rgba(148,163,184,.1);
+      padding: 0.1rem 0.35rem;
+      border-radius: 5px; font-size: 0.87em;
+    }
+    hr { border: none; border-top: 1px solid #1e293b; margin: 2.5rem 0; }
+  </style>
+</head>
+<body>
+
+<h1>MAPA — Extended Multi-Agent Architecture</h1>
+<h2>Accessibility Profiling and Personalized Journey Planning · Research-Grade Pipeline Design</h2>
+
+<!-- ── Status legend ─────────────────────────────────────────────── -->
+<div class="status-legend">
+  <div class="sl-item"><div class="sl-dot" style="background:#7c3aed"></div> Implemented in current prototype</div>
+  <div class="sl-item"><div class="sl-dot" style="background:#b45309"></div> Planned — near-term engineering</div>
+  <div class="sl-item"><div class="sl-dot" style="background:#0891b2"></div> Research contribution — novel, requires investigation</div>
+  <div class="sl-item"><div class="sl-dot" style="background:#dc2626"></div> Consent / safety gate</div>
+  <div class="sl-item"><div class="sl-dot" style="background:#3b82f6"></div> Frontend / User Interface</div>
+  <div class="sl-item"><div class="sl-dot" style="background:#06b6d4"></div> API surface</div>
+  <div class="sl-item"><div class="sl-dot" style="background:#be185d"></div> Provider / external service</div>
+  <div class="sl-item"><div class="sl-dot" style="background:#059669"></div> Memory / data store</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h3>1. Extended System Architecture</h3>
+  <div class="mermaid">
+flowchart LR
+    USER([User])
+
+    subgraph FE ["Frontend Layer"]
+      F_HERO[HeroSection]
+      F_CHAT[ProfilingChat]
+      F_RES[ResultsView]
+      F_MAP[RouteMap]
+      F_GPS[GPS]
+      F_TTS[SpeechOutput]
+    end
+
+    subgraph GW ["API Gateway"]
+      A_PROFILE["POST /profile/turn and /stream"]
+      A_PLAN["POST /plan and /plan/stream"]
+      A_AUDIO["POST /audio/transcribe"]
+      A_ZURICH["GET /zurich/data"]
+    end
+
+    subgraph OL ["Orchestration Layer"]
+      O_CG[ConsentGuardAgent]
+      O_ORCH[Orchestrator]
+      O_MEM[MemoryRouter]
+      O_LOG[TraceLogger]
+    end
+
+    subgraph PG ["Profile LangGraph"]
+      P_MMIR[MultimodalInputRouter]
+      P_NE[NeedsExtractor]
+      P_UQ[UncertaintyQuantifier]
+      P_DP[DialoguePolicyAgent]
+      P_PM[ProfileManager]
+      P_CF[ConfirmationAgent]
+    end
+
+    subgraph PLG ["Planning LangGraph"]
+      PL_IV[InputValidator]
+      PL_ZF[ContextFetcher]
+      PL_RR[RouteReasoner]
+      PL_IH[ImageHazard]
+      PL_AL[AmenityLocator]
+      PL_HF[HazardFusion]
+      PL_SA[SafetyAuditor]
+      PL_PA[PlannerAgent]
+      PL_CA[CognitiveAdapter]
+      PL_OR[OutputRouter]
+      PL_SY[Synthesis]
+    end
+
+    subgraph MEM ["Memory Layer"]
+      M_WM[WorkingMemory]
+      M_PS[ProfileStore]
+      M_BC[BarrierCache]
+      M_EP[EpisodicStore]
+    end
+
+    subgraph EXT ["External Data"]
+      E_ZA[ZuriACT WFS]
+      E_WC[ZuriWC WFS]
+      E_PK[Parking WFS]
+      E_GTFS[GTFS LiveFeed]
+      E_OSM[OpenStreetMap]
+    end
+
+    USER --> F_HERO --> F_CHAT --> F_RES
+    F_RES --> F_MAP
+    F_GPS --> F_RES
+    F_RES --> F_TTS
+
+    F_CHAT --> A_PROFILE
+    F_CHAT --> A_AUDIO
+    F_RES --> A_PLAN
+    F_RES --> A_ZURICH
+
+    A_AUDIO --> O_ORCH
+    A_PROFILE --> O_CG --> O_ORCH --> PG
+    A_PLAN --> O_ORCH --> PLG
+    A_ZURICH --> M_BC
+
+    PG --> O_MEM
+    PLG --> O_MEM
+    O_ORCH --> O_LOG
+
+    O_MEM --> M_WM
+    O_MEM --> M_PS
+    O_MEM -.opt-in.-> M_EP
+
+    PLG --> EXT
+    M_BC --> PLG
+
+    classDef ui fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef api fill:#06b6d4,stroke:#0e7490,color:#fff
+    classDef gate fill:#dc2626,stroke:#991b1b,color:#fff
+    classDef impl fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef planned fill:#b45309,stroke:#92400e,color:#fff
+    classDef research fill:#0891b2,stroke:#0c4a6e,color:#fff
+    classDef mem fill:#059669,stroke:#065f46,color:#fff
+    classDef ext fill:#1e3a5f,stroke:#1e40af,color:#cbd5e1
+    classDef term fill:#374151,stroke:#6b7280,color:#cbd5e1
+
+    class F_HERO,F_CHAT,F_RES,F_MAP,F_GPS,F_TTS ui
+    class A_PROFILE,A_PLAN,A_AUDIO,A_ZURICH api
+    class O_CG gate
+    class O_ORCH,O_LOG impl
+    class O_MEM planned
+    class P_NE,P_PM,P_CF,PL_IV,PL_ZF,PL_RR,PL_IH,PL_AL,PL_HF,PL_PA,PL_SY impl
+    class P_MMIR,PL_CA planned
+    class P_UQ,P_DP,PL_SA,PL_OR,M_EP research
+    class M_WM,M_PS,M_BC mem
+    class E_ZA,E_WC,E_PK,E_GTFS,E_OSM ext
+    class USER term
+  </div>
+  <div class="note">
+    The extended architecture adds three layers not present in the current prototype.
+    The <strong>Orchestration Layer</strong> grows from a single dispatcher into a structured layer with a
+    <code>MemoryRouter</code> (session-state bus) and <code>TraceLogger</code> (audit trail for evaluation).
+    The <strong>Profile Graph</strong> gains a <code>MultimodalInputRouter</code>, an <code>UncertaintyQuantifier</code>
+    (Bayesian slot confidence), and a <code>DialoguePolicyAgent</code> (information-gain–driven question ordering,
+    inspired by POMDP-based spoken dialogue management
+    <cite>[Young et al., 2013]</cite>).
+    The <strong>Planning Graph</strong> gains a <code>SafetyAuditor</code> (grounded claim verification),
+    a <code>CognitiveLoadAdapter</code> (readability scoring and rewriting), and a
+    <code>MultimodalOutputRouter</code> (modality dispatch: text, speech, sign gloss, map-only).
+    Dynamic communication topology — which agent-to-agent links are active — is treated as a first-class design variable
+    rather than a fixed hub-and-spoke structure
+    <cite>[Jiang et al., 2026 Agent Q-Mix; Zhang et al., 2024 G-Designer; Yang et al., 2025 AgentNet]</cite>.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h3>2. Enriched Profiling Pipeline — Uncertainty-Aware Slot Filling</h3>
+  <div class="mermaid">
+flowchart TD
+    START((START)) --> CGN[consent_guard_node]
+    CGN -- consent granted --> MMIR[MultimodalInputRouter]
+    CGN -- consent denied --> ENDD((END))
+
+    MMIR -- text turn --> NE[NeedsExtractor]
+    MMIR -- speech input --> STT[SpeechSTT provider]
+    MMIR -- image upload --> IPC[ImagePreprocessor]
+    STT --> NE
+    IPC -. visual context hint .-> NE
+
+    NE --> UQ[UncertaintyQuantifier]
+
+    UQ -- all slots confident --> PM[profile_manager_node]
+    UQ -- low-confidence slot found --> DP[DialoguePolicyAgent]
+    DP -- ranked follow-up question --> CO[conversation_orchestrator_node]
+    CO --> END_ASK((ASK USER))
+
+    PM --> CF[confirmation_agent_node]
+    CF -- user confirms --> PS[ProfileStore]
+    CF -- user corrects --> NE
+    PS --> END_OK((END))
+
+    NE -. lexicon scan .-> LX[LexiconScanner]
+    NE -. LLM triage call .-> LLMP[LLMProvider]
+    UQ -. Bayesian belief over slots .-> BD[ConfidenceDistributions]
+    DP -. info-gain policy .-> SP[SlotPriorityQueue]
+    PM -. Pydantic schema guard .-> SCHEMA[accessibility-profile]
+
+    classDef gate fill:#dc2626,stroke:#991b1b,color:#fff
+    classDef impl fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef planned fill:#b45309,stroke:#92400e,color:#fff
+    classDef research fill:#0891b2,stroke:#0c4a6e,color:#fff
+    classDef mem fill:#059669,stroke:#065f46,color:#fff
+    classDef prov fill:#be185d,stroke:#9d174d,color:#fff
+    classDef term fill:#374151,stroke:#6b7280,color:#cbd5e1
+
+    class CGN gate
+    class NE,PM,CF,CO,STT impl
+    class MMIR,IPC planned
+    class UQ,DP,BD,SP research
+    class LX,LLMP prov
+    class PS,SCHEMA mem
+    class START,ENDD,END_ASK,END_OK term
+  </div>
+  <div class="note">
+    The enriched profiling pipeline reframes dialogue as a <strong>constrained slot-filling
+    problem</strong> over accessibility domains (mobility, vision, hearing, cognition), extending the
+    frame-based dialogue tradition to a probabilistic setting
+    <cite>[Young et al., 2013; Jurafsky and Martin, 2024]</cite>.
+
+    <br><br><strong>NeedsExtractor</strong> (implemented): combines a deterministic lexicon scan
+    over domain-specific keyword patterns with a structured LLM triage call. Both signals are merged by
+    per-domain logical disjunction, and confidence is set to 0.85 for strong evidence and 0.30 for
+    indirect evidence.
+
+    <br><br><strong>UncertaintyQuantifier</strong> (research contribution): rather than treating each
+    slot as a binary yes/no, this node maintains a probability distribution over the slot's active value.
+    If any route-critical slot falls below a confidence threshold, the dialogue is extended rather than
+    closed prematurely.
+
+    <br><br><strong>DialoguePolicyAgent</strong> (research contribution): selects the next question by
+    ranking open slots according to expected information gain — a simplified version of the POMDP belief-update
+    and action-selection cycle. This is more principled than fixed-order questioning and reduces interaction length
+    for users who have already revealed enough context.
+
+    <br><br><strong>MultimodalInputRouter</strong> (planned): routes text, speech, and image inputs to
+    appropriate preprocessing branches before extraction. This is the integration point for camera-based
+    hazard hints (consent-gated) and for voice-first interaction via faster-whisper
+    <cite>[Systran, 2023; Radford et al., 2023]</cite>.
+    The handling of visual input as supplementary rather than primary evidence is grounded in
+    benchmarking evidence showing that even strong vision-language models achieve only ~16% task
+    success on visually grounded web tasks, far below human performance, underscoring the
+    importance of treating image analysis as advisory in safety-critical contexts
+    <cite>[Koh et al., 2024 VisualWebArena]</cite>.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h3>3. Enriched Planning Pipeline — Grounded, Safety-Audited, Adaptive Output</h3>
+  <div class="mermaid">
+flowchart TD
+    START2((START)) --> IV[input_validator_node]
+    IV -- valid profile --> ZF[zurich_data_fetcher_node]
+    IV -- schema error --> ERR((END-ERR))
+
+    ZF --> RR[route_reasoner_node]
+    ZF --> IH[image_hazard_node]
+    ZF --> AL[amenity_locator_node]
+    ZF --> LT[LiveTransitAgent]
+
+    RR --> HF[hazard_fusion_node]
+    IH --> HF
+    AL --> HF
+    LT --> HF
+
+    HF --> SA[SafetyAuditorAgent]
+    SA -- claims grounded --> PA[planner_node]
+    SA -- ungrounded claim found --> HF
+
+    PA --> CLA[CognitiveLoadAdapter]
+    CLA -- readability ok --> MOR[MultimodalOutputRouter]
+    CLA -- simplify needed --> PA
+
+    MOR -- text --> SY[synthesis_node]
+    MOR -- speech-ready text --> SYS[SpeechSynthesis]
+    MOR -- sign gloss --> SGT[SignGlossTranscoder]
+    MOR -- map-only mode --> MAP_OUT[MapDataBundle]
+
+    SY --> END_P((END))
+    SYS --> END_P
+    SGT --> END_P
+    MAP_OUT --> END_P
+
+    RR -. step-free routing logic .-> RTE[RouteProvider]
+    IH -. optional image hazards .-> IMG[ImageProvider]
+    ZF -. live WFS queries .-> OGD[Zurich OGD APIs]
+    LT -. GTFS realtime feed .-> GTFS[GTFS LiveFeed]
+    AL -. barrier scoring 80m radius .-> BDATA[ZuriACT barriers]
+    SA -. claim-to-data alignment .-> EVDB[EvidenceDB]
+    CLA -. readability metrics .-> READ[ReadabilityScorer]
+    SGT -. notation conversion .-> SGLEX[SignGlossLexicon]
+
+    classDef gate fill:#dc2626,stroke:#991b1b,color:#fff
+    classDef impl fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef parallel fill:#d97706,stroke:#b45309,color:#fff
+    classDef planned fill:#b45309,stroke:#92400e,color:#fff
+    classDef research fill:#0891b2,stroke:#0c4a6e,color:#fff
+    classDef prov fill:#be185d,stroke:#9d174d,color:#fff
+    classDef mem fill:#059669,stroke:#065f46,color:#fff
+    classDef ext fill:#1e3a5f,stroke:#1e40af,color:#cbd5e1
+    classDef term fill:#374151,stroke:#6b7280,color:#cbd5e1
+
+    class IV,ZF,HF,PA,SY,RTE impl
+    class RR,IH,AL parallel
+    class LT,SYS,MAP_OUT planned
+    class SA,CLA,MOR,SGT,EVDB,READ,SGLEX research
+    class IMG,OGD,GTFS,BDATA prov
+    class START2,ERR,END_P term
+  </div>
+  <div class="note">
+    The enriched planning pipeline adds three academically motivated components after the
+    existing <code>hazard_fusion_node</code>.
+
+    <br><br><strong>SafetyAuditorAgent</strong> (research contribution): a post-fusion verifier that
+    checks whether each accessibility claim in the candidate plan is grounded in the available evidence —
+    route fixtures, ZüriACT barriers, or civic amenity data. Claims that are not supported by any retrieved
+    evidence are removed or demoted to tentative warnings. This directly addresses the hallucination problem
+    in safety-critical assistive navigation noted in the accessibility HCI literature
+    <cite>[MacLeod et al., 2017]</cite>.
+    The auditor can also loop back to <code>hazard_fusion_node</code> to request additional evidence
+    before accepting a plan.
+
+    <br><br><strong>CognitiveLoadAdapter</strong> (research contribution): applies readability metrics
+    (e.g., Flesch-Kincaid complexity) to the draft plan and, if the user profile indicates simple-language
+    or memory-support needs, triggers a rewriting pass targeting shorter sentences and landmark-based cues.
+    This operationalizes the Simple Language requirement as an automatic, measurable transformation
+    rather than a rule-based string replacement.
+
+    <br><br><strong>MultimodalOutputRouter</strong> (research contribution): dispatches the final plan
+    to one or more output channels based on the user's communication mode preference: plain text, speech-ready
+    prose for TTS synthesis, sign-language gloss notation, or a map-only data bundle for screen-reader–friendly
+    rendering. This makes the output-modality decision an explicit, auditable step rather than an implicit
+    frontend rendering choice.
+
+    <br><br><strong>LiveTransitAgent</strong> (planned): integrates GTFS realtime feeds to annotate
+    route steps with actual departure times, platform changes, and service disruptions at the point of
+    plan generation.
+
+    <br><br>The two-level structure of the planning pipeline — profiling intent at the higher level,
+    route-step actions at the lower level — parallels the hierarchical LLM agent framework proposed
+    by EPO, where separate models handle subgoal decomposition and low-level action generation,
+    with preference signals derived from multimodal environment feedback used to align both levels
+    <cite>[Zhao et al., 2024 EPO]</cite>.
+    In MAPA, the profiling pipeline plays the role of subgoal generation (establishing what the user
+    needs at the intent level), while the planning pipeline performs the corresponding action-level
+    translation into concrete route steps and safety annotations. The SafetyAuditor and
+    CognitiveLoadAdapter serve as post-hoc preference filters on the planning output,
+    analogous to the reward-model-driven ranking step in EPO.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h3>4. Dynamic Agent Communication Topology — Profile-Complexity–Adaptive Wiring</h3>
+  <div class="mermaid">
+flowchart LR
+    subgraph SIMPLE ["Topology A — Simple profile, single need"]
+      S_USER([User]) --> S_CGN[ConsentGuard]
+      S_CGN --> S_NE[NeedsExtractor]
+      S_NE --> S_PM[ProfileManager]
+      S_PM --> S_RR[RouteReasoner]
+      S_RR --> S_PA[PlannerAgent]
+      S_PA --> S_OUT([Output])
+    end
+
+    subgraph COMPLEX ["Topology B — Complex profile, multi-need"]
+      C_USER([User]) --> C_CGN[ConsentGuard]
+      C_CGN --> C_MMIR[InputRouter]
+      C_MMIR --> C_NE[NeedsExtractor]
+      C_NE --> C_UQ[UncertaintyQuantifier]
+      C_UQ --> C_DP[DialoguePolicyAgent]
+      C_DP --> C_PM[ProfileManager]
+      C_PM --> C_ZF[ContextFetcher]
+      C_ZF --> C_RR[RouteReasoner]
+      C_ZF --> C_IH[ImageHazard]
+      C_ZF --> C_AL[AmenityLocator]
+      C_RR --> C_HF[HazardFusion]
+      C_IH --> C_HF
+      C_AL --> C_HF
+      C_HF --> C_SA[SafetyAuditor]
+      C_SA --> C_PA[PlannerAgent]
+      C_PA --> C_CLA[CognitiveAdapter]
+      C_CLA --> C_MOR[OutputRouter]
+      C_MOR --> C_OUT([Output])
+
+      C_NE <-. cross-check mobility,vision .-> C_AL
+      C_UQ <-. confidence alert .-> C_DP
+      C_SA <-. claim verification .-> C_ZF
+    end
+
+    classDef gate fill:#dc2626,stroke:#991b1b,color:#fff
+    classDef impl fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef research fill:#0891b2,stroke:#0c4a6e,color:#fff
+    classDef planned fill:#b45309,stroke:#92400e,color:#fff
+    classDef term fill:#374151,stroke:#6b7280,color:#cbd5e1
+
+    class S_CGN,C_CGN gate
+    class S_NE,S_PM,S_RR,S_PA,C_NE,C_PM,C_ZF,C_RR,C_IH,C_AL,C_HF,C_PA impl
+    class C_MMIR planned
+    class C_UQ,C_DP,C_SA,C_CLA,C_MOR research
+    class S_USER,C_USER,S_OUT,C_OUT term
+  </div>
+  <div class="note">
+    In the current prototype, the orchestrator uses a fixed hub-and-spoke topology regardless of
+    user profile complexity. This is efficient for single-need profiles but wastes no communication
+    on simple cases while missing cross-agent consultation that could benefit complex ones.
+
+    <br><br>Inspired by work on <strong>communication topology as a design variable</strong> in multi-agent systems,
+    the proposed extension introduces a <strong>topology selector</strong> that activates one of two
+    pre-defined topologies at planning time based on the number of active accessibility domains.
+    The most principled form of this idea is Agent Q-Mix, which reformulates topology selection as a
+    cooperative MARL problem: each agent learns to choose from six communication actions
+    (broadcast, query, debate, verify-with-tool, or work independently) using QMIX value factorization
+    under a centralized-training / decentralized-execution (CTDE) paradigm, balancing task accuracy
+    against token cost across the agent population
+    <cite>[Jiang et al., 2026 Agent Q-Mix]</cite>.
+    Earlier static topology design tools such as G-Designer and AgentNet provide complementary
+    motivation for treating the communication graph as an explicit, tunable artifact
+    <cite>[Zhang et al., 2024 G-Designer; Yang et al., 2025 AgentNet]</cite>.
+
+    <br><br><strong>Topology A</strong> (single need, e.g., wheelchair only): a minimal sequential chain
+    with no parallel branches and no uncertainty module. Optimised for latency.
+
+    <br><br><strong>Topology B</strong> (multi-need, e.g., wheelchair, low vision, simple language):
+    the full graph is activated with parallel data branches, cross-agent consultation links
+    (e.g., the NeedsExtractor notifies the AmenityLocator about mobility-relevant priorities),
+    and the research-contribution nodes for safety auditing and cognitive adaptation.
+
+    <br><br>The cross-consultation edges shown as dotted bidirectional links implement a restricted form
+    of the agent message-passing described in AgentNet and Agent Q-Mix: agents can request a fact from a peer
+    without routing the entire state back through the orchestrator, reducing redundant re-computation
+    <cite>[Yang et al., 2025; Jiang et al., 2026]</cite>.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h3>5. Memory-Augmented Context Architecture — Three-Tier State Management</h3>
+  <div class="mermaid">
+flowchart TD
+    subgraph SESSION ["Working Memory — Session Scope"]
+      WM_SLOTS[Slot values and confidence scores]
+      WM_TURNS[Dialogue turn history]
+      WM_TRACE[Agent trace log]
+      WM_INTENT[Current intent state]
+      WM_SLOTS <--> WM_INTENT
+      WM_TURNS --> WM_TRACE
+    end
+
+    subgraph PERSIST ["Persistent Store — Opt-In, User-Controlled"]
+      PS_FAP[Validated Accessibility Profile]
+      PS_HIST[Past route preferences]
+      PS_CORR[User correction history]
+      PS_PREF[Output modality preference]
+      PS_FAP --> PS_HIST
+      PS_CORR --> PS_FAP
+    end
+
+    subgraph ENVIRON ["Environmental Cache — Time-Bounded"]
+      EC_BARRIER[ZuriACT barrier cache TTL 15 min]
+      EC_TOILET[ZuriWC amenity cache TTL 15 min]
+      EC_PARKING[Parking cache TTL 60 min]
+      EC_TRANSIT[GTFS live feed TTL 60 sec]
+      EC_OSM[OSM pedestrian graph TTL 24 h]
+    end
+
+    subgraph AGENTS ["Agent Read/Write Access"]
+      A_NE[NeedsExtractor]
+      A_UQ[UncertaintyQuantifier]
+      A_PM[ProfileManager]
+      A_ZF[ContextFetcher]
+      A_SA[SafetyAuditor]
+      A_PA[PlannerAgent]
+    end
+
+    A_NE -- read/write slots --> WM_SLOTS
+    A_UQ -- read/write confidence --> WM_SLOTS
+    A_PM -- commit validated profile --> PS_FAP
+    A_PM -- read correction history --> PS_CORR
+    A_ZF -- read barrier data --> EC_BARRIER
+    A_ZF -- read amenity data --> EC_TOILET
+    A_ZF -- read transit feed --> EC_TRANSIT
+    A_SA -- read evidence for claim check --> EC_BARRIER
+    A_PA -- read past preferences .opt-in. --> PS_HIST
+    A_PA -- write route to history .opt-in. --> PS_HIST
+
+    classDef impl fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef research fill:#0891b2,stroke:#0c4a6e,color:#fff
+    classDef planned fill:#b45309,stroke:#92400e,color:#fff
+    classDef mem fill:#059669,stroke:#065f46,color:#fff
+    classDef ext fill:#1e3a5f,stroke:#1e40af,color:#cbd5e1
+
+    class A_NE,A_PM,A_ZF,A_PA impl
+    class A_UQ,A_SA research
+    class WM_SLOTS,WM_TURNS,WM_TRACE,WM_INTENT,EC_BARRIER,EC_TOILET,EC_PARKING,EC_OSM mem
+    class PS_FAP,PS_HIST,PS_CORR,PS_PREF ext
+    class EC_TRANSIT planned
+  </div>
+  <div class="note">
+    Memory management is often treated as an implementation detail in multi-agent systems, but in
+    accessibility navigation it has direct consequences for correctness and user autonomy.
+
+    <br><br><strong>Working Memory</strong> (session-scoped, volatile): holds per-turn slot values,
+    confidence scores, dialogue history, and the agent trace log. It is the only memory tier
+    active in the current prototype. It is cleared at session end and never leaves the server.
+
+    <br><br><strong>Persistent Store</strong> (opt-in, user-controlled): stores the validated
+    <code>accessibility_profile</code> across sessions, together with a history of past route
+    preferences and user corrections. Corrections are explicitly fed back into the profile so that the
+    system improves its defaults for the same user over time without requiring a full re-profiling
+    dialogue. Participation in this tier requires explicit consent, aligned with the UN CRPD's
+    emphasis on user autonomy and data control
+    <cite>[UN, 2006]</cite>.
+
+    <br><br><strong>Environmental Cache</strong> (time-bounded, server-side): holds recently fetched
+    WFS responses from Zurich civic data sources. TTL values are calibrated to source update frequencies:
+    barrier and amenity data change slowly (15-minute cache is safe), while live transit feeds require
+    sub-minute refresh. The <code>SafetyAuditorAgent</code> reads directly from this cache to verify
+    plan claims without issuing additional network calls.
+
+    <br><br>This three-tier design separates concerns cleanly: working memory handles transient
+    reasoning state, persistent memory enables personalisation with user consent, and the environmental
+    cache decouples agent reasoning from live network latency.
+  </div>
+</div>
+
+<hr>
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div> Implemented</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#b45309"></div> Planned near-term</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#0891b2"></div> Research contribution</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div> Consent / safety gate</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#d97706"></div> Parallel branch</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div> Frontend</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div> API</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#be185d"></div> Provider</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#059669"></div> Memory / Cache</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1e3a5f"></div> Persistent / External</div>
+</div>
+
+<footer>
+  MAPA Extended Architecture · Design based on:
+  Young et al. 2013 (POMDP dialogue) ·
+  Zhang et al. 2024 G-Designer ·
+  Yang et al. 2025 AgentNet ·
+  Radford et al. 2023 Whisper ·
+  LangGraph (LangChain 2024) ·
+  MacLeod et al. 2017 (accessibility claim reliability)
+</footer>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "dark",
+    themeVariables: {
+      darkMode: true,
+      background: "#151b26",
+      primaryColor: "#7c3aed",
+      primaryTextColor: "#ffffff",
+      lineColor: "#64748b",
+      fontSize: "13px",
+      edgeLabelBackground: "#151b26",
+      clusterBkg: "#1a2235",
+      clusterBorder: "#2b3444",
+      titleColor: "#94a3b8",
+    }
+  });
+</script>
+</body>
+</html>

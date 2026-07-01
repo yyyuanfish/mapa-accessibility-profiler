@@ -3,3 +3,33 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .DS_Store
+
+# Local editor and agent state
+.claude/
+local_skills/
+
+# Frontend dependencies and generated builds
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# LaTeX and temporary build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+tmp/
+YuanYu_Bachelor_cl-thesis/build/
+YuanYu_Bachelor_cl-thesis/tmp/
+YuanYu_Bachelor_cl-thesis/tmp_full_text.txt
+
+# Local thesis templates, workshop notes, and helper skill repositories
+Thesis Proposal template - Yuan/
+ADC workshop/
+MAP Workshop 2 - Slides .pdf
+map_workshop_summary_v3*.pdf
+research-writing-skill/

@@ -81,7 +81,7 @@ class NeedsExtractor:
         "USER \"eye problem, walk badly, can't read complex text\" -> "
         "{\"profile_patch\":{\"needs\":{"
         "\"vision\":{\"blind_or_low_vision\":true,\"prefers_landmarks\":true},"
-        "\"mobility\":{\"wheelchair_user\":true,\"needs_step_free_route\":true,\"avoid_long_walks\":true},"
+        "\"mobility\":{\"wheelchair_user\":true,\"needs_step_free_route\":true},"
         "\"cognitive\":{\"needs_simple_language\":true,\"reading_or_memory_difficulty_or_child\":true}},"
         "\"communication\":{\"output_mode\":\"simple_text\"}}}\n"
         "USER \"I use sign language\" -> {\"profile_patch\":{\"needs\":{\"hearing\":"
@@ -94,7 +94,11 @@ class NeedsExtractor:
         "- Omit keys the user did not mention.\n"
         "- \"walk badly\" / \"bad leg\" / \"trouble walking\" imply needs_step_free_route=true.\n"
         "- \"complex text\" / \"difficult words\" imply needs_simple_language=true.\n"
-        "- \"eye problem\" / \"vision issue\" imply blind_or_low_vision=true."
+        "- \"eye problem\" / \"vision issue\" / \"eyesight is bad\" imply blind_or_low_vision=true.\n"
+        "- \"read lips\" / \"miss announcements\" imply deaf_or_hard_of_hearing=true.\n"
+        "- \"prefer signing\" implies sign_language_user=true.\n"
+        "- \"ramps or lifts\" / \"cannot cope with steps\" imply needs_step_free_route=true.\n"
+        "- \"small chunks\" / \"long paragraphs\" imply needs_simple_language=true; \"lose track\" implies needs_memory_support=true."
     )
 
     def __init__(self, llm_provider: LLMProvider) -> None:
@@ -144,6 +148,12 @@ class NeedsExtractor:
         current = current_patch if current_patch is not None else ProfilePatch()
         llm_patch = self._request_llm_patch(user_message, current, question_context)
         lexicon_patch = needs_taxonomy.extract_all_domains(user_message)
+        # Distance limits require explicit walking-distance evidence. This
+        # prevents phrases such as "long text" from activating long-walk rules.
+        lexicon_mobility = lexicon_patch.get("needs", {}).get("mobility", {})
+        llm_mobility = llm_patch.get("needs", {}).get("mobility", {})
+        if llm_mobility.get("avoid_long_walks") is True and "avoid_long_walks" not in lexicon_mobility:
+            llm_mobility.pop("avoid_long_walks", None)
         merged = deep_merge_dicts(llm_patch, lexicon_patch)
 
         hints = self._compute_domain_confidence(llm_patch, lexicon_patch)

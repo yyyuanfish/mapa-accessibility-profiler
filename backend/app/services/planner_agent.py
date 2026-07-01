@@ -12,7 +12,7 @@ from backend.app.models import (
     RawRoute,
 )
 from backend.app.providers.llm_provider import LLMProvider
-from backend.app.providers.route_provider import RouteProvider
+from backend.app.providers.route_provider import ROUTE_STEP_COORDS, RouteProvider
 from backend.app.utils.json_extract import JSONExtractionError, extract_first_json
 
 
@@ -32,7 +32,19 @@ class PlannerAgent:
         route_id: str,
         image_hazards: ImageHazardsSummary | dict[str, Any] | None = None,
         response_language: str = "en",
+        zurich_data: dict[str, Any] | None = None,
     ) -> PersonalizedPlan:
+        """Generate a personalised journey plan.
+
+        Args:
+            profile: Accessibility profile (model or dict).
+            route_id: Route fixture identifier.
+            image_hazards: Optional pre-analysed image hazard summary.
+            response_language: Output language ("en" | "zh" | "de").
+            zurich_data: Optional live data from Zurich OGD (ZüriACT barriers,
+                nearest toilet, nearest disabled parking).  Passed through from
+                ``amenity_locator_node`` in the planning pipeline.
+        """
         profile_model = profile if isinstance(profile, AccessibilityProfile) else AccessibilityProfile.model_validate(profile)
         hazards = None
         if image_hazards is not None:
@@ -43,12 +55,23 @@ class PlannerAgent:
             )
 
         selected_route, preferences_applied, route_alerts = self._select_route(profile_model, route_id)
-        draft_plan = self._build_draft_plan(profile_model, selected_route, preferences_applied, route_alerts, hazards)
+        draft_plan = self._build_draft_plan(
+            profile_model, selected_route, preferences_applied, route_alerts, hazards, zurich_data
+        )
 
         output_mode = self._effective_output_mode(profile_model)
         plan = self._request_llm_plan(draft_plan, output_mode)
         language = self._normalize_language(response_language)
-        return self._localize_plan(plan, language)
+        plan = self._localize_plan(plan, language)
+
+        # Attach step-level WGS-84 coordinates so the frontend can render the
+        # route on a map. Falls back to empty list for routes without coords.
+        raw_coords = ROUTE_STEP_COORDS.get(selected_route.route_id, [])
+        if raw_coords:
+            plan = PersonalizedPlan(
+                **{**plan.model_dump(), "route_coords": [list(c) for c in raw_coords]}
+            )
+        return plan
 
     def format_plan(self, plan: PersonalizedPlan, language: str = "en") -> str:
         lang = self._normalize_language(language)
@@ -145,6 +168,7 @@ class PlannerAgent:
         preferences_applied: list[str],
         route_alerts: list[str],
         hazards: ImageHazardsSummary | None,
+        zurich_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         directions: list[str] = []
         alerts = list(route_alerts)
@@ -159,6 +183,14 @@ class PlannerAgent:
 
         for idx, step in enumerate(route.steps, start=1):
             text = f"Step {idx}: {step.instruction} ({step.distance_m}m, about {step.duration_min} min)."
+
+            if blind_support and step.visual_only_cue:
+                cue = step.landmark or "the next staffed indoor waypoint"
+                text = (
+                    f"Step {idx}: Use nearby staff, tactile cues, or the route text "
+                    f"to confirm {cue} ({step.distance_m}m, about {step.duration_min} min)."
+                )
+                preferences_applied.append("nonvisual_indoor_guidance")
 
             if blind_support and step.landmark:
                 text += f" Landmark: {step.landmark}."
@@ -239,6 +271,68 @@ class PlannerAgent:
             preferences_applied.append("image_hazard_stub")
             if hazards.accessibility_cues or hazards.visible_objects:
                 preferences_applied.append("symbolic_vision_feedback")
+
+        # ── Zurich OGD live data (ZüriACT barriers, accessible toilets, parking) ──
+        if zurich_data:
+            barrier_score       = zurich_data.get("barrier_score") or {}
+            step_barrier_scores = zurich_data.get("step_barrier_scores") or []
+
+            # Per-step barrier annotations (appended to matching direction text)
+            if step_barrier_scores:
+                step_alerts_by_idx: dict[int, list[str]] = {}
+                for sb in step_barrier_scores:
+                    if sb.get("alerts"):
+                        step_alerts_by_idx[sb["step_index"]] = sb["alerts"]
+
+                # Rebuild directions with step-specific barrier notes
+                enriched_directions: list[str] = []
+                for idx, direction in enumerate(directions):
+                    step_notes = step_alerts_by_idx.get(idx, [])
+                    if step_notes:
+                        note = " ⚠ " + " ".join(step_notes)
+                        enriched_directions.append(direction + note)
+                    else:
+                        enriched_directions.append(direction)
+                directions = enriched_directions
+                preferences_applied.append("zurich_act_step_barrier_analysis")
+
+            # Overall ZüriACT barrier alerts (route-level)
+            for alert in barrier_score.get("alerts", []):
+                alerts.append(alert)
+
+            if barrier_score.get("worst_severity", 0) >= 4 and (wheelchair_user or step_free_needed):
+                alerts.append(
+                    "ZüriACT reports high-severity barriers near this route. "
+                    "Contact the local accessibility service before departure."
+                )
+                preferences_applied.append("zurich_act_barrier_check")
+            elif barrier_score.get("total_barriers", 0) > 0:
+                preferences_applied.append("zurich_act_barrier_check")
+
+            # Nearest accessible toilet
+            nearest_toilet = zurich_data.get("nearest_toilet")
+            if nearest_toilet and (wheelchair_user or step_free_needed):
+                dist    = nearest_toilet.get("distance_m", "?")
+                name    = nearest_toilet.get("name", "WC")
+                free_s  = "free" if nearest_toilet.get("free", True) else "paid"
+                hours   = nearest_toilet.get("opening_hours", "")
+                entry   = f"Nearest accessible toilet (Züri WC): {name}, {dist}m away, {free_s}"
+                if hours:
+                    entry += f", open {hours}"
+                entry += "."
+                checklist.append(entry)
+                preferences_applied.append("zurich_accessible_toilet_info")
+
+            # Nearest disabled parking (for wheelchair users who may drive)
+            nearest_parking = zurich_data.get("nearest_parking")
+            if nearest_parking and wheelchair_user:
+                dist    = nearest_parking.get("distance_m", "?")
+                address = nearest_parking.get("address") or "nearby"
+                fee_s   = "fee required" if not nearest_parking.get("free", True) else "free"
+                checklist.append(
+                    f"Nearest disabled parking spot: {address}, {dist}m from route centre ({fee_s})."
+                )
+                preferences_applied.append("zurich_disabled_parking_info")
 
         summary = (
             f"Personalized plan for {route.name}. "
@@ -328,11 +422,16 @@ class PlannerAgent:
                 "audio_to_visible_cues": "音频提示改为可视文本提示",
                 "fatigue_risk_alert": "已启用长距离疲劳提醒",
                 "low_vision_stepwise_directions": "已启用低视力分步指引",
+                "nonvisual_indoor_guidance": "已启用室内非视觉指引",
                 "deaf_text_first_guidance": "已启用听障文本优先指引",
                 "mobility_step_free_preference": "已启用行动无台阶偏好",
                 "simple_english_mode": "已启用简明语言模式",
                 "image_hazard_stub": "已应用图像风险提示",
                 "symbolic_vision_feedback": "已应用结构化视觉反馈",
+                "zurich_act_barrier_check": "已核查 ZüriACT 实时障碍数据",
+                "zurich_act_step_barrier_analysis": "已完成 ZüriACT 逐步障碍空间分析",
+                "zurich_accessible_toilet_info": "已定位附近无障碍卫生间（苏黎世 WC）",
+                "zurich_disabled_parking_info": "已定位附近无障碍停车位",
             }
             return mapping.get(base, base)
         if language == "de":
@@ -341,11 +440,16 @@ class PlannerAgent:
                 "audio_to_visible_cues": "Audiohinweise in visuelle Hinweise umgewandelt",
                 "fatigue_risk_alert": "Ermüdungswarnung bei langer Strecke aktiviert",
                 "low_vision_stepwise_directions": "Schritt-für-Schritt-Anleitung für Sehbehinderung aktiviert",
+                "nonvisual_indoor_guidance": "nicht-visuelle Innenraumhinweise aktiviert",
                 "deaf_text_first_guidance": "Textbasierte Hinweise für Hörunterstützung aktiviert",
                 "mobility_step_free_preference": "Stufenfreie Mobilitätspräferenz aktiviert",
                 "simple_english_mode": "einfache Sprache aktiviert",
                 "image_hazard_stub": "Bild-Risiko-Hinweis angewendet",
                 "symbolic_vision_feedback": "strukturierte visuelle Rückmeldung angewendet",
+                "zurich_act_barrier_check": "ZüriACT-Echtzeitdaten geprüft",
+                "zurich_act_step_barrier_analysis": "schrittweise ZüriACT-Hindernisanalyse abgeschlossen",
+                "zurich_accessible_toilet_info": "nächste barrierefreie Toilette (Züri WC) gefunden",
+                "zurich_disabled_parking_info": "nächsten Behindertenparkplatz gefunden",
             }
             return mapping.get(base, base)
         return base

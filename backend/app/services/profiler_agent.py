@@ -40,7 +40,7 @@ class ProfilerAgent:
         "USER \"eye problem, walk badly, can't read complex text\" -> "
         "{\"profile_patch\":{\"needs\":{"
         "\"vision\":{\"blind_or_low_vision\":true,\"prefers_landmarks\":true},"
-        "\"mobility\":{\"wheelchair_user\":true,\"needs_step_free_route\":true,\"avoid_long_walks\":true},"
+        "\"mobility\":{\"wheelchair_user\":true,\"needs_step_free_route\":true},"
         "\"cognitive\":{\"needs_simple_language\":true,\"reading_or_memory_difficulty_or_child\":true}},"
         "\"communication\":{\"output_mode\":\"simple_text\"}}}\n"
         "USER \"I use sign language\" -> {\"profile_patch\":{\"needs\":{\"hearing\":"
@@ -53,7 +53,11 @@ class ProfilerAgent:
         "- Omit keys the user did not mention.\n"
         "- \"walk badly\" / \"bad leg\" / \"trouble walking\" imply needs_step_free_route=true.\n"
         "- \"complex text\" / \"difficult words\" imply needs_simple_language=true.\n"
-        "- \"eye problem\" / \"vision issue\" imply blind_or_low_vision=true."
+        "- \"eye problem\" / \"vision issue\" / \"eyesight is bad\" imply blind_or_low_vision=true.\n"
+        "- \"read lips\" / \"miss announcements\" imply deaf_or_hard_of_hearing=true.\n"
+        "- \"prefer signing\" implies sign_language_user=true.\n"
+        "- \"ramps or lifts\" / \"cannot cope with steps\" imply needs_step_free_route=true.\n"
+        "- \"small chunks\" / \"long paragraphs\" imply needs_simple_language=true; \"lose track\" implies needs_memory_support=true."
     )
     _SUPPORTED_LANGS = {"en", "zh", "de"}
     _QUESTION_TEXTS = {
@@ -336,9 +340,20 @@ class ProfilerAgent:
             mobility=score(mobility_known, mobility_total, "mobility"),
             cognitive=score(cognitive_known, cognitive_total, "cognitive"),
         )
-        overall = round(
-            (per_domain.vision + per_domain.hearing + per_domain.mobility + per_domain.cognitive) / 4,
-            2,
+        known_domain_scores = [
+            value
+            for value, known in [
+                (per_domain.vision, vision_known),
+                (per_domain.hearing, hearing_known),
+                (per_domain.mobility, mobility_known),
+                (per_domain.cognitive, cognitive_known),
+            ]
+            if known > 0
+        ]
+        overall = (
+            round(sum(known_domain_scores) / len(known_domain_scores), 2)
+            if known_domain_scores
+            else 0.0
         )
         return ConfidenceScores(overall=overall, per_domain=per_domain)
 
@@ -606,7 +621,6 @@ class ProfilerAgent:
                         "mobility": {
                             "wheelchair_user": True,
                             "needs_step_free_route": True,
-                            "avoid_long_walks": True,
                         }
                     }
                 }
@@ -617,7 +631,6 @@ class ProfilerAgent:
                 "needs": {
                     "mobility": {
                         "needs_step_free_route": yes,
-                        "avoid_long_walks": yes,
                     }
                 }
             }

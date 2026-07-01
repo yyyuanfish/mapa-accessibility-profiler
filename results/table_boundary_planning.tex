@@ -1,0 +1,10 @@
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.0cm} >{\centering\arraybackslash}p{1.8cm} X}
+\toprule
+Check & Count & Interpretation \\
+\midrule
+Fallback warnings when required & 2/2 & Both no-alternative cases surface an explicit limitation instead of silently claiming that the route was optimized. \\
+Unsupported accessibility claims & 0/4 & None of the boundary plans asserts accessibility without route-fixture evidence. This is an error count, so 0 is the desired result. \\
+Multi-need adaptations & 3/3 & All cases with multiple required preferences activate every expected adaptation. \\
+Schema-valid plans & 4/4 & All boundary plans satisfy the output schema. \\
+\bottomrule
+\end{tabularx}

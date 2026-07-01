@@ -1,0 +1,308 @@
+% ADD THIS HEADER TO ALL NEW CHAPTER FILES FOR SUBFILES SUPPORT
+
+% Allow independent compilation of this section for efficiency
+\documentclass[../CLthesis.tex]{subfiles}
+
+% Add the graphics path for subfiles support
+\graphicspath{{\subfix{../images/}}}
+
+% END OF SUBFILES HEADER
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% START OF DOCUMENT: Every chapter can be compiled separately
+\begin{document}
+
+\chapter{Introduction}%
+\label{chap:intro}
+\section{Motivation}
+Moving through an unfamiliar place is demanding for anyone: a traveller has to read signs, follow directions, and keep track of where they are \citep{armitage2022priority}. For people with access needs, the same trip can be far harder than most travellers would imagine: a single staircase, a construction barrier, an instruction that relies only on sight, or a long stretch with nowhere to rest can each end an independent trip. Accessible journey planning therefore has to do more than find a path; it has to find a path a particular person can use, and explain why that path is usable.
+
+Most route services still fall short of this. They sort people into broad disability groups \citep{crudele2023accessible, ruginski2022designing}, yet a route works or fails on concrete features such as stairs, walking distance, audio-only cues, reading load, or nearby landmarks. What counts as usable depends on a person's functional needs, the concrete things they need from a route such as a step-free path, shorter walking segments, simple wording, or spoken directions. These needs are highly individual, and a system can adapt a route well only once it knows them \citep{wobbrock2011ability}.
+
+Recent advances in language technology make it practical to elicit these needs directly from the traveller. Multimodal models now read a photo and the traveller's spoken words alongside text \citep{radford2023whisper, yin2024survey}, and multi-agent systems let several specialised agents share the asking, profiling, and planning \citep{wu2023autogen, li2023camel}, so the system can ask a person what they need and act on the answer. That same power raises the stakes, because a wrong accessibility claim about a route puts the traveller's safety at risk.
+
+
+\section{Problem Statement}
+\label{sec:problem}
+Current accessible wayfinding faces several connected problems. One of the most important is the gap between broad accessibility labels and the concrete route conditions that individual users need. A generic label such as ``accessible'' gives a route planner too little information about a specific person’s needs, while many real-world barriers remain absent from digital maps \citep{crudele2023accessible, allahbakhshi2024navigationchallenges}. Against this background, this thesis focuses on two central problems: how to turn a short, user-approved conversation into route constraints, and how to support route claims with explicit evidence. Among that, four main gaps shape the design choices that follow:
+
+
+
+\begin{itemize}
+  \item \textbf{User modelling.}
+  Navigation systems usually sort users into a few broad categories, but the specific needs a route must meet decide which route is right \citep{wobbrock2011ability}. This is hardest for neurodivergent users, whose needs depend strongly on context and on how instructions are phrased \citep{piedade2025neuroqueer}.
+
+  \item \textbf{System integration.}
+  Few systems combine profiling, multimodal input, and route planning in one pipeline. These abilities already exist for image description, environment scanning, and interactive wayfinding, but they live in separate tools \citep{huang2025accessibilityscout, gleason2020making}.
+
+  \item \textbf{Evidence and safety.}
+  When language models are used for navigation, made-up details and wrong safety claims are dangerous \citep{macleod2017understanding, ayanzadeh2025floorplan}. The system needs real evidence before it says a route is suitable, and a clear warning when only a weaker option is available.
+
+  \item \textbf{Orchestration and control.}
+  Multi-agent research has focused on coding and reasoning tasks \citep{wu2023autogen, hong2023metagpt}, and newer methods let agents learn how to coordinate \citep{zhang2024gdesigner, jiang2026agentqmix}. Accessibility planning instead needs a workflow that can be inspected, where every claim shown to the user is tied to profile, route, image, or city data.
+\end{itemize}
+
+\section{Research Questions and Contributions}
+\label{sec:research-questions-contributions}
+These gaps lead to three research questions that this thesis addresses:
+
+\begin{enumerate}
+
+\item How accurately can the profiling workflow recover route-relevant needs from varied user input, including scripted, everyday, multi-domain, and multilingual cases?
+\item How many dialogue turns does the system need to reach a complete accessibility profile?
+\item How does a confirmed profile change route choice, output format, and the use of real city data?
+
+\end{enumerate}
+
+The main contributions of Multimodal multi-Agent Profiling for Accessibility (MAPA) can be divided into three areas:
+\paragraph{Contribution 1: A multimodal multi-agent framework for accessible route planning.}
+MAPA explores multi-agent orchestration as a controlled way to separate accessibility profiling, route reasoning, optional visual evidence, and plan synthesis. This separation makes the workflow easier to inspect and keeps different modalities from being merged in an opaque single-step generation process.
+\paragraph{Contribution 2: A four-domain profile for route-relevant access needs.}
+MAPA represents user needs through a validated profile covering vision, hearing, mobility, and cognition. The profile records functional needs that matter for planning and connects them to route choice, warnings, and output adaptation without relying on broad disability labels.
+\paragraph{Contribution 3: Open-data grounding for accessibility warnings.}
+MAPA connects profile-based planning with selected City of Zurich open-data sources \citep{stadtzuerich_zueriact, stadtzuerich_zueriwc, stadtzuerich_parking}. This allows route warnings and nearby accessibility information to be supported by external evidence rather than by model-generated claims alone.
+
+
+\section{Scope}
+Given these experimental constraints, this thesis is framed as an engineering study. MAPA is built as a working prototype and tested under fixed conditions. Curated route examples make route choice and output repeatable, scripted personas and boundary cases test fallback behaviour and step-free alternatives, and live Zurich feeds add real city data where route coordinates allow. Together, these materials produce a stable, inspectable baseline that others can extend and compare against.
+
+The source code, route fixtures, profile schema, and generated evaluation artifacts for the reviewed version are available in the \href{https://github.com/yyyuanfish/mapa-accessibility-profiler}{project repository}.
+
+\section{Thesis Structure}
+The thesis is organized from a system-design perspective. Chapter~\ref{chap:related-work} reviews previous work on accessible navigation, multimodal language technology, and multi-agent systems. Chapter~\ref{chap:material} describes the data and evaluation materials. Chapter~\ref{chap:methods} presents the profile, architecture, and implementation of MAPA. Chapter~\ref{chap:results} gives the evaluation setup, results, and limitations. Chapter~\ref{chap:conclusion} summarizes the findings and outlines the next steps.
+
+
+
+% The world is a complex environment to perceive, interpret, and move through. For human travellers, aligning visual, linguistic, spatial, and action-oriented information is already a non-trivial task \citep{armitage2025embodied, armitage2022priority}. For people with access needs, the same environment can become substantially harder to navigate. A single stair, an unexpected construction barrier, an instruction that depends only on visual landmarks, or a long unbroken walking segment may be enough to prevent independent travel when suitable accessibility support is absent. This thesis starts from that practical difficulty: accessible journey planning is not only about finding a path, but also about understanding which route properties make that path usable for a particular person.
+
+% Accessibility is a global concern rather than a niche design requirement. In the WHO fact sheet on disability and health published on 7 March 2023, an estimated 1.3 billion people, or 16\% of the global population, experience significant disability \citep{who2023disability}. Disability is not a single, uniform condition. The Washington Group Short Set operationalizes disability through six core functional domains: seeing, hearing, walking or climbing steps, cognition, self-care, and communication \citep{washingtongroup_shortset}. These domains affect access to health, education, employment, public participation, emergency response, and transport. They are also consistent with the rights-based framing of the UN Convention on the Rights of Persons with Disabilities, which treats autonomy, participation, and non-discrimination as central concerns rather than optional service features \citep{un2006crpd}. For journey planning, this means that accessibility cannot be reduced to a generic preference setting. A route that is usable for one person may be unusable for another because of stairs, missing auditory alternatives, excessive walking distance, high reading load, poor landmark support, or a combination of these factors.
+
+% Accessible journey planning is therefore more than a routing problem. Earlier accessible routing systems already showed that pedestrian navigation must account for differing abilities rather than only shortest paths \citep{sobek2006uaccess}. More recent work on accessible maps, sidewalk accessibility, and urban mobility restrictions further shows that accessible wayfinding depends on detailed environmental evidence as well as user-specific requirements \citep{froehlich2019grand, saha2019projectsidewalk, allahbakhshi2024navigationchallenges}. Before a system can adapt a route, it must first determine what kind of support the person actually needs, whether that support concerns stair avoidance, landmark-based guidance, simple language, memory reminders, sign-language style output, speech-oriented instructions, or some combination of these needs.
+
+% The existing accessible navigation literature suggests that this profiling step is still not fully addressed. Systematic reviews of accessible wayfinding and navigation show that many systems are designed for a single impairment group, a single modality, or a specific environment, and that comparable evaluation practices remain limited \citep{crudele2023accessible, ruginski2022designing}. From the perspective of ability-based design, this fragmentation is also a modelling problem. Systems often encode users through fixed categories instead of representing concrete functional requirements that matter during interaction \citep{wobbrock2011ability}. For a route-planning system, these functional requirements are the variables that determine whether stairs must be avoided, whether an audio-only cue is acceptable, whether sign-language style output is needed, or whether instructions should be divided into shorter steps. This thesis therefore treats accessibility profiling as a necessary step before route adaptation rather than as a secondary interface preference.
+
+% The same motivation was reinforced by formative discussions in the Multimodal Accessibility Planning project at the Google Accessibility Discovery Center Zurich.\footnote{Unpublished MAP workshop materials, Google Accessibility Discovery Center Zurich, 27 February 2026.} These materials are used here as design context rather than as a formal user study. They highlighted that people often combine mainstream maps, official venue websites, specialist accessibility applications, and AI assistants when planning accessible activities. They also made clear that AI-generated planning support is difficult to trust when it lacks sources, gives outdated information, or states broad accessibility claims without evidence. A useful system therefore needs to represent concrete features, such as stairs, elevators, quiet spaces, audio-only cues, visual-only signs, or readable instructions, rather than relying on a generic label such as ``accessible''. This thesis adopts that lesson by making functional needs and evidence-grounded planning the starting point of the system design.
+
+% Recent multimodal language technology creates a practical opportunity to revisit this problem, but it also introduces new risks. LLM-based systems can process free-form dialogue, speech, and optional visual context, while embodied and vision-language navigation research has shown the value of linking linguistic input with spatial perception \citep{yin2024survey, liu2023llava, zhou2023navgpt, lin2024navcot, zhao2025spatial}. At the same time, accessibility-sensitive journey planning requires stronger control than open-ended chat. A hallucinated statement in a general conversation may be inconvenient, but a hallucinated accessibility claim in a route plan may be unsafe. A system that infers a diagnosis, stores unnecessary personal data, or asks intrusive questions also fails as an accessibility design. The central problem for this thesis is therefore how a constrained and inspectable system can translate a short consent-based interaction, structured as a slot-filling problem over accessibility domains \citep{young2013pomdp, jurafskymartin2024}, into actionable planning constraints while keeping speech and image input explicitly consent-gated.
+
+% This problem also motivates the use of a fixed multi-agent pipeline. General multi-agent LLM research has shown how role-separated agents can coordinate reasoning and tool use in complex workflows \citep{li2023camel, wu2023autogen, hong2023metagpt, qian2024chatdev}. However, the requirements of accessibility planning differ from general problem-solving tasks. The system must preserve traceability, validate structured outputs, separate profiling from planning, and limit what each component may claim. MAPA adopts this controlled orchestration view: the profiling workflow elicits functional needs, the planning workflow applies those needs to route fixtures and Zurich open data, and optional multimodal branches remain consent-gated. Chapter~\ref{chap:related-work} situates this design in relation to accessible wayfinding, multimodal language systems, and multi-agent orchestration.
+
+% \section{Problem Statement}
+% \label{sec:problem}
+
+% Four interconnected gaps in the existing literature motivate the design choices made in this thesis.
+
+% \begin{itemize}
+%   \item \textbf{User modelling gap.}
+%   Existing navigation systems typically encode users as members of a small set of coarse categories rather than through the route-relevant functional requirements that actually determine what routing choices are appropriate \citep{crudele2023accessible, ruginski2022designing, wobbrock2011ability}. This limitation is especially pronounced for cognitively diverse and neurodivergent users, whose spatial navigation needs depend strongly on context and instruction style \citep{wobbrock2019seven, piedade2025neuroqueer, cognitive_web_equality}.
+
+%   \item \textbf{System integration gap.}
+%   Personalization, multimodal input, and route planning are rarely combined in a single profiling-to-planning pipeline. Accessibility-oriented research has demonstrated the value of personalization in image description preferences, environmental scanning, and interactive wayfinding \citep{huang2025accessibilityscout, froehlich2025streetviewai, gleason2020making, kacorri2017people}, but these advances remain distributed across separate assistive functions.
+
+%   \item \textbf{Grounding and safety gap.}
+%   When large language models are applied to navigation-adjacent tasks, unsupported claims, hallucinated details, and false-safe outputs become particularly dangerous \citep{macleod2017understanding, wu2023understanding}. An accessibility-oriented system must not only add information when hazards are present but also refrain from reassuring users when supporting evidence is absent. This asymmetric requirement is rarely addressed in existing multi-agent architectures.
+
+%   \item \textbf{Orchestration and control gap.}
+%   Mainstream multi-agent research has concentrated on software engineering and reasoning tasks \citep{li2023camel, wu2023autogen, hong2023metagpt, qian2024chatdev}, and learned communication-topology approaches are emerging \citep{zhang2024gdesigner, yang2025agentnet, jiang2026agentqmix}. Fixed, inspectable multi-agent workflows that combine profiling, route reasoning, optional multimodal grounding, and live civic data in an accessibility-sensitive context remain largely unexplored.
+% \end{itemize}
+
+% These gaps motivate the central question of this thesis: how can a multimodal, profile-driven framework elicit functional needs through a brief, consent-first interaction and turn them into grounded journey-planning output?
+
+% \section{Research Questions and Contributions}
+% This thesis investigates the following questions:
+
+% \begin{enumerate}
+%     \item How accurately can the profiling workflow recover route-relevant functional needs from scripted, colloquial, multi-domain, and multilingual input?
+%     \item How many clarification turns are needed when first-turn extraction is incomplete?
+%     \item How does a confirmed accessibility profile affect route switching, multimodal output adaptation, and Zurich grounding in the planning pipeline?
+% \end{enumerate}
+
+% To answer these questions, the thesis develops MAPA, a multimodal multi-agent LLM-based prototype for accessibility profiling and personalized journey planning. The work makes three substantive contributions, supported by an engineering contribution.
+
+% \paragraph{Contribution 1: Accessibility needs elicitation as a constrained NLP task.}
+% The thesis frames accessibility profiling, meaning the task of determining what a user functionally requires from a route, as a consent-gated and confidence-scored slot-filling dialogue. It is not treated as a medical form or as an unconstrained conversation. This framing brings precision and recall from task-oriented dialogue research \citep{young2013pomdp, jurafskymartin2024} into an accessibility-specific domain and produces a structured profile that downstream planning components can use directly.
+
+% \paragraph{Contribution 2: A functional needs representation for route planning.}
+% Rather than mapping users to medical diagnosis categories, the system represents route-relevant requirements through a four-domain schema, \texttt{accessibility\_profile.v1}, covering vision, hearing, mobility, and cognition. Each domain is realized as a compact structured record with boolean flags and a confidence score. This representation is narrow enough to be formally validated with Pydantic and JSON Schema \citep{pydantic2023, jsonschema2020} and directly connectable to concrete planning constraints, yet rich enough to distinguish, for example, a wheelchair user who must avoid stairs from one who additionally requires short step distances and audio turn-by-turn cues.
+
+% \paragraph{Contribution 3: Live civic open data as a step-level planning grounding mechanism.}
+% The planning pipeline integrates three live Zurich open-data feeds: Z\"uriACT accessibility barriers \citep{stadtzuerich_zueriact}, accessible toilets \citep{stadtzuerich_zueriwc}, and disabled parking \citep{stadtzuerich_parking}. It uses these feeds as grounding evidence for route warnings and amenity mentions where live data is available. For routes with step-level WGS84 coordinates, the system identifies which individual steps fall within 80\,m of a high-severity or impassable barrier. This adds route-specific contextual evidence while keeping explicit control over what the language model may assert.
+
+% \paragraph{Engineering support.}
+% These contributions are realized through two LangGraph orchestration workflows \citep{langgraph2024}, a needs extractor with lexicon and provider-based triage modes, and a reproducible evaluation package. The evaluation includes 49 automated tests, a 24-case profiling stress set with contrastive ambiguity cases, 90 controlled planning cases, a four-case boundary-fixture stress test, and a 72-case indoor-style persona adaptation stress test. The deterministic mock run provides regression evidence, while the local Ollama run is reported only as a one-turn provider sanity check. The system also supports multilingual interaction in English, German, and Chinese, speech input through faster-whisper \citep{radford2023whisper, systran2023fasterwhisper}, browser-based speech synthesis, and a consent-gated image-hazard branch for planning.
+
+% \section{Scope}
+% The thesis is deliberately narrower than a full commercial navigation product. The system does not claim real-time end-user deployment, complete pedestrian routing over a city-scale graph, or continuous indoor localization. The current implementation relies on route fixtures for planning, uses live Zurich open data as contextual enrichment rather than as a full routing substrate, and evaluates reliability primarily through automated tests and scripted personas. This restriction is intentional. The aim is to establish a reproducible baseline for profile-driven accessibility planning before addressing harder problems such as indoor-outdoor handoff, venue-level routing in museums or security checkpoints, or large-scale user studies.
+
+% \section{Thesis Structure}
+% The remainder of this thesis is thematically divided into the following chapters: Chapter~\ref{chap:related-work} situates the project in the literature on accessible navigation, multimodal language technology, and multi-agent orchestration. Chapter~\ref{chap:material} describes the data and software artefacts used in the prototype, including the profile schema, route fixtures, evaluation personas, and Zurich open-data feeds. Chapter~\ref{chap:methods} presents the architecture and implementation, from consent handling and dialogue policy to plan generation and live data enrichment. Chapter~\ref{chap:results} reports the current implementation status and evaluation results, and discusses their implications and limitations. Chapter~\ref{chap:conclusion} summarizes the main findings and outlines the most important next steps.
+
+
+% % The world is a complex environment to perceive, interpret, and move through. For human travellers, aligning visual, linguistic, spatial, and action-oriented information is already a non-trivial task \citep{armitage2025embodied, armitage2022priority}. For people with access needs, the same environment can become substantially harder to navigate. A single stair, an unexpected construction barrier, an instruction that depends only on visual landmarks, or a long unbroken walking segment may be enough to prevent independent travel when suitable accessibility support is absent. This study starts from that practical difficulty: accessible journey planning is not only about finding a path, but also about understanding which route properties make that path usable for a particular person.
+
+% % Indeed, accessibility is a global concern rather than a niche design requirement. In the WHO fact sheet on disability and health published on 7 March 2023, an estimated 1.3 billion people, or 16\% of the global population, experience significant disability \citep{who2023disability}. Disability is not a single, uniform condition. The Washington Group Short Set operationalizes disability through six core functional domains: seeing, hearing, walking or climbing steps, cognition, self-care, and communication \citep{washingtongroup_shortset}. These domains affect access to health, education, employment, public participation, emergency response, and transport. They are also consistent with the rights-based framing of the UN Convention on the Rights of Persons with Disabilities, which treats autonomy, participation, and non-discrimination as central concerns rather than optional service features \citep{un2006crpd}. For journey planning, this means that accessibility cannot be reduced to a generic preference setting. A route that is usable for one person may be unusable for another because of stairs, missing auditory alternatives, excessive walking distance, high reading load, poor landmark support, or a combination of these factors.
+
+% % Accessible journey planning is therefore more than a routing problem. Earlier accessible routing systems already showed that pedestrian navigation must account for differing abilities rather than only shortest paths \citep{sobek2006uaccess}. More recent work on accessible maps, sidewalk accessibility, and urban mobility restrictions further shows that accessible wayfinding depends on detailed environmental evidence as well as user-specific requirements \citep{froehlich2019grand, saha2019projectsidewalk, allahbakhshi2024navigationchallenges}. Before a system can adapt a route, it must first determine what kind of support the person actually needs, whether that support concerns stair avoidance, landmark-based guidance, simple language, memory reminders, sign-language style output, speech-oriented instructions, or some combination of these needs.
+
+% % The existing accessible navigation literature suggests that this profiling step is still not fully addressed. Systematic reviews of accessible wayfinding and navigation show that many systems are designed for a single impairment group, a single modality, or a specific environment, and that comparable evaluation practices remain limited \citep{crudele2023accessible, ruginski2022designing}. From the perspective of ability-based design, this fragmentation is also a modelling problem. Systems often encode users through fixed categories instead of representing concrete functional requirements that matter during interaction \citep{wobbrock2011ability}. For a route-planning system, these functional requirements are the variables that determine whether stairs must be avoided, whether an audio-only cue is acceptable, whether sign-language style output is needed, or whether instructions should be divided into shorter steps. This thesis therefore treats accessibility profiling as a necessary step before route adaptation rather than as a secondary interface preference.
+
+% % Recent multimodal language technology creates a practical opportunity to revisit this problem, but it also introduces new risks. LLM-based systems can process free-form dialogue, speech, and optional visual context, while embodied and vision-language navigation research has shown the value of linking linguistic input with spatial perception \citep{yin2024survey, liu2023llava, zhou2023navgpt, lin2024navcot, zhao2025spatial}. At the same time, accessibility-sensitive journey planning requires stronger control than open-ended chat. A hallucinated statement in a general conversation may be inconvenient, but a hallucinated accessibility claim in a route plan may be unsafe. A system that infers a diagnosis, stores unnecessary personal data, or asks intrusive questions also fails as an accessibility design. The central problem for this thesis is therefore how a constrained and inspectable system can translate a short consent-based interaction, structured as a slot-filling problem over accessibility domains \citep{young2013pomdp, jurafskymartin2024}, into actionable planning constraints while keeping speech and image input explicitly consent-gated.
+
+% % This problem also motivates the use of a fixed multi-agent pipeline. General multi-agent LLM research has shown how role-separated agents can coordinate reasoning and tool use in complex workflows \citep{li2023camel, wu2023autogen, hong2023metagpt, qian2024chatdev}. However, the requirements of accessibility planning differ from general problem-solving tasks. The system must preserve traceability, validate structured outputs, separate profiling from planning, and limit what each component may claim. MAPA adopts this controlled orchestration view: the profiling workflow elicits functional needs, the planning workflow applies those needs to route fixtures and Zurich open data, and optional multimodal branches remain consent-gated. Chapter~\ref{chap:related-work} situates this design in relation to accessible wayfinding, multimodal language systems, and multi-agent orchestration.
+
+
+% \section{Scientific Writing Hints for Introductions}
+% Typical questions that should be answered in the introduction:
+% \begin{itemize}
+%     \item Why is the  topic relevant? (Did you claim centrality of the topic?)
+%     \item What is the general (!) background/context?
+%     \item What is the study about? (Did you establish a niche?)
+%     \item What is the research gap?
+%     \item What is the goal of the study? (How do you occupy the niche?)
+%     \item How are the following sections organized?
+% \end{itemize}
+
+% A typical introduction contains the following sections
+% \begin{itemize}
+% \item \textbf{Motivation}: Purpose and Scope: Introduce the main topic, objectives, and scope of the work.
+% \item \textbf{Background}: Provide context and background information to set the stage for the reader.
+% \item \textbf{Research Questions}: State the key questions or hypotheses that the work aims to address.
+% \item \textbf{Thesis Structure}: Provide a roadmap of the subsequent chapters.
+% \end{itemize}
+
+% \subsection{Typical Structure for Empirical Thesis}
+% There is no hard rule. But a good starting point could be the following:
+% \begin{enumerate}
+% \item Introduction
+% \item Background or Related Work
+% \item Material
+% \item Methods
+% \item Results and Discussion (including a Future Work section)
+% \item Conclusion
+% \end{enumerate}
+
+% Or this structure if you have a series of experiments that include a bit of methods, results and discussion:
+% \begin{enumerate}
+% \item Introduction
+% \item Background or Related Work
+% \item Methods
+% \item Experiment A (including Results and Discussion)
+% \item Experiment B (including Results and Discussion)
+% \item Experiment C (including Results and Discussion)
+% \item Conclusion
+% \end{enumerate}
+
+% A good idea is to learn from \href{https://www.cl.uzh.ch/en/studies/theses/lic-master-theses.html}{good BA/MA theses} from our Department that match your use case!
+
+% \subsection{Literature References: Don't Panic!}
+% \subsubsection{Checklist}
+% \begin{itemize}
+% \item Can ALL references from the text be found in the literature section?
+% \item Do you mention ALL literature references in the text?
+% \item Are your references consistently formatted? (pages, publisher, etc.)
+
+% \item Do you have enough established scientifically  sources?  (not only web pages)
+% \item Do your in-text citations make a difference between \href{https://www.scribbr.com/chicago-style/chicago-in-text-citation/}{textual/narrative and parenthetical style}?
+% \end{itemize}
+
+% We use the ACL bibliographic style, which supports URLs nicely!
+
+% \subsection{Different Types of Citations}
+% There are different ways to include a reference in your text:
+
+% \paragraph{Parenthetical Citations}
+% \begin{itemize}
+%     \item \textbf{Command}: \texttt{\textbackslash cite\{key\}} or \texttt{\textbackslash citep\{key\}}
+%     \item \textbf{Usage}: Use this when you want to reference a work within parentheses.
+%     \item \textbf{Example}:
+%     \begin{quote}
+%         Text: "Natural language processing has seen significant advances in recent years \verb!\citep{Jurafsky2009}!."
+
+%         Output: "Natural language processing has seen significant advances in recent years \cite{Jurafsky2009}."
+%     \end{quote}
+% \end{itemize}
+
+% \paragraph{Textual/Narrative Citations}
+% \begin{itemize}
+%     \item \textbf{Command}: \texttt{\textbackslash citet\{key\}}
+%     \item \textbf{Usage}: Use this when you want to reference the author as part of the sentence.
+%     \item \textbf{Example}:
+%     \begin{quote}
+%         Text: "\verb!\citet{Jurafsky2009}! demonstrated the effectiveness of transformer models."
+
+%         Output: "Jurafsky and Martin (2009) demonstrated the effectiveness of transformer models."
+%     \end{quote}
+% \end{itemize}
+
+
+% \paragraph{Author's Possessive Form}
+% \begin{itemize}
+%     \item \textbf{Command}: \texttt{\textbackslash citeposs\{key\}}
+%     \item \textbf{Usage}: Use this for a possessive form of the citation.
+%     \item \textbf{Example}:
+%     \begin{quote}
+%         Text: "\verb!\citeposs{Jurafsky2009}! approach significantly improved accuracy."
+
+%         Output: "\citeposs{Jurafsky2009} approach significantly improved accuracy."
+%     \end{quote}
+% \end{itemize}
+
+% \paragraph{Multiple Citations}
+% \begin{itemize}
+%     \item \textbf{Command}: \texttt{\textbackslash citep\{key1, key2, key3\}}
+%     \item \textbf{Usage}: Use this to cite multiple references within the same parentheses.
+%     \item \textbf{Example}:
+%     \begin{quote}
+%         Text: "Several studies have explored this area\newline \verb!\citep{Jurafsky2009, Koehn2005, noauthor_semantic_nodate}!."
+
+%         Output: "Several studies have explored this area \citep{Jurafsky2009, Koehn2005, noauthor_semantic_nodate}."
+%     \end{quote}
+% \end{itemize}
+
+
+% \paragraph{Including URLs in References}
+% \begin{itemize}
+%     \item \textbf{Command}: Use a BibTeX entry with a \texttt{url} field.
+%     \item \textbf{Usage}: The ACL style supports URLs in references, so you can include a URL directly in the BibTeX entry.
+%     \item \textbf{Example} (BibTeX entry):
+%     \begin{verbatim}
+%     @article{Smith2020,
+%       author = {John Smith},
+%       title = {An Overview of NLP},
+%       journal = {Journal of Computational Linguistics},
+%       year = {2020},
+%       url = {http://example.com/nlp-overview}
+%     }
+%     \end{verbatim}
+%     Output: The URL will be properly formatted and included in the references section.
+% \end{itemize}
+
+% To fix your bibtex file, use the \href{https://vilda.net/s/ryanize-bib/}{Ryanize tool}.
+
+
+% \section{Motivation}
+%  Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id
+% est laborum\footnote{Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore
+% magna aliqua. }
+
+
+% \section{Research Questions}
+
+% The research questions that shall be answered in this thesis, are:
+% \begin{enumerate}
+%     \item RQ One
+%     \item RQ Two
+%     \item RQ Three\footnote{Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore
+% magna aliqua. }
+% \end{enumerate}
+
+% \section{Thesis Structure}
+% The remainder of this thesis is thematically divided into the following chapters:
+% Chapter 2 introduces \ldots
+% Chapter 3 presents \ldots
+% \footnote{Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore
+% magna aliqua. }
+
+% self-defined macro: include bibliography even when compiling a single chapter
+\subfilebibliography
+\end{document}

@@ -92,12 +92,16 @@ class OllamaLLMProvider(LLMProvider):
         payload: dict[str, object] = {
             "model": self.model,
             "stream": False,
+            # Profiling and plan formatting need concise structured output, not
+            # the long reasoning trace enabled by default in Qwen3 models.
+            "think": False,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             "options": {
                 "temperature": 0,
+                "num_predict": 768,
             },
         }
         # When the system prompt indicates a profiler task, force structured

@@ -59,6 +59,7 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
             "eye problem", "eye problems", "eye issue", "eye issues",
             "eye trouble", "vision issue", "vision problem",
             "trouble seeing", "hard to see", "poor eyesight", "bad eyesight",
+            "eyesight is bad", "bad sight", "limited vision",
             "bad eyes", "visual impairment", "visually impaired", "sight loss",
             # ZH
             "眼睛有问题", "眼睛不好", "看不清", "看不见", "视力差", "视力不好",
@@ -81,6 +82,8 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
             "cannot hear", "can't hear", "can not hear",
             "hearing issue", "hearing issues", "hearing problem",
             "ear problem", "ear problems", "bad hearing",
+            "read lips", "lip read", "lip reading",
+            "miss announcements", "miss audio announcements",
             # ZH
             "听力不好", "听力问题", "听不清", "听不见", "听障", "聋",
             "耳朵有问题",
@@ -98,7 +101,7 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
         "positive": [
             # EN
             "sign language", "asl", "bsl", "signed", "sign user",
-            "use sign", "uses sign",
+            "use sign", "uses sign", "signing", "prefer signing",
             # ZH
             "手语", "使用手语", "用手语",
             # DE
@@ -135,6 +138,9 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
             "avoid stairs", "no stairs", "without stairs",
             "cannot climb stairs", "can't climb stairs", "can not climb stairs",
             "trouble with stairs", "stairs are hard",
+            "cannot cope with steps", "can't cope with steps",
+            "ramps or lifts", "need ramps", "need a ramp",
+            "ramps are safer", "lifts are safer", "elevators are safer",
             # EN — "walking is hard" style, implies step-free help
             "walk badly", "walks badly", "walk slowly", "walks slowly",
             "walking difficulty", "walking difficulties", "hard to walk",
@@ -142,6 +148,12 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
             "bad leg", "bad legs", "bad knee", "bad knees",
             "mobility issue", "mobility issues", "mobility problem",
             "walker",  # mobility aid, not the tool
+            # EN — pain/injury phrases
+            "leg pain", "knee pain", "ankle pain", "foot pain", "hip pain",
+            "leg hurts", "knee hurts", "ankle hurts", "foot hurts",
+            "pain in leg", "pain in my leg", "pain in the leg",
+            "pain in knee", "pain in my knee",
+            "sore leg", "sore legs", "sore knee", "sore knees",
             # ZH
             "走路不好", "走路慢", "走路困难", "腿脚不便", "腿不好",
             "爬楼梯困难", "上不了楼梯", "避免台阶", "无台阶",
@@ -149,6 +161,9 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
             "stufenfrei", "ohne stufen", "treppen vermeiden",
             "gehe schlecht", "laufe schlecht", "gehbehinderung",
             "schlechtes bein", "schlechte beine",
+            "beinschmerzen", "knieschmerzen", "fußschmerzen", "hüftschmerzen",
+            # ZH — pain phrases
+            "腿痛", "膝盖痛", "脚痛", "腿疼", "膝盖疼",
         ],
         "negative": [
             "stairs are fine", "i can walk fine", "walking is fine",
@@ -157,14 +172,32 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
             "treppen sind kein problem", "laufe gut",
         ],
     },
+    "long_walk": {
+        "positive": [
+            "avoid long walks", "cannot walk far", "can't walk far",
+            "short walking distance", "need short walks", "walking far is hard",
+            "long walking distance is hard", "tire when walking",
+            "不要走太远", "不能走远", "需要短距离步行",
+            "lange strecken vermeiden", "kann nicht weit gehen", "kurze gehstrecke",
+        ],
+        "negative": [
+            "long walks are fine", "walking far is fine", "no walking distance limit",
+            "可以走远", "步行距离没问题",
+            "lange strecken sind kein problem",
+        ],
+    },
     "cognitive_simple": {
         "positive": [
             # EN
             "simple english", "easy words", "short sentences",
             "simple language", "plain language", "plain english",
             "complex text", "complicated text", "difficult words",
-            "long words", "hard to read", "reading difficulty",
-            "reading difficulties", "confusing", "confuses me",
+            "long text", "long texts", "long words", "long paragraphs",
+            "short chunks", "small chunks", "short instructions",
+            "keep instructions short",
+            "hard to read", "reading difficulty",
+            "reading difficulties", "trouble reading", "difficulty reading",
+            "confusing", "confuses me",
             "can't read complex", "cannot read complex",
             "can't understand complex", "cannot understand complex",
             "child", "kid", "for a child",
@@ -188,7 +221,7 @@ NEEDS_LEXICON: dict[str, dict[str, list[str]]] = {
             # EN
             "memory", "reminders", "remind me", "i forget", "i forgot",
             "memory difficulty", "memory support", "memory reminders",
-            "forgetful",
+            "forgetful", "lose track", "losing track",
             # ZH
             "记忆", "提醒", "记忆提醒", "容易忘", "我会忘", "记不住",
             # DE
@@ -293,7 +326,7 @@ def extract_all_domains(text: str) -> dict[str, Any]:
     deep-merged with other patches.
 
     Secondary inferences mirror the existing ``ProfilerAgent._contextual_patch``
-    rules (e.g., wheelchair implies step-free + avoid long walks, simple
+    rules (e.g., wheelchair implies step-free, simple
     language implies ``output_mode=simple_text``).
     """
     # Check for blanket "no needs" phrases first. If present, set all
@@ -343,7 +376,6 @@ def extract_all_domains(text: str) -> dict[str, Any]:
         needs.setdefault("mobility", {})["wheelchair_user"] = wheelchair
         if wheelchair:
             needs["mobility"]["needs_step_free_route"] = True
-            needs["mobility"]["avoid_long_walks"] = True
 
     step_free = detect_bool(text, "step_free")
     if step_free is not None:
@@ -354,6 +386,10 @@ def extract_all_domains(text: str) -> dict[str, Any]:
             mobility["needs_step_free_route"] = True
         elif not mobility.get("wheelchair_user"):
             mobility["needs_step_free_route"] = False
+
+    long_walk = detect_bool(text, "long_walk")
+    if long_walk is not None:
+        needs.setdefault("mobility", {})["avoid_long_walks"] = long_walk
 
     simple = detect_bool(text, "cognitive_simple")
     if simple is not None:

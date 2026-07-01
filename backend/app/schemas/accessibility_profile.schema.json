@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.local/schemas/accessibility_profile.v1.schema.json",
-  "title": "AccessibilityProfileV1",
+  "$id": "https://example.local/schemas/accessibility_profile.schema.json",
+  "title": "AccessibilityProfile",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,7 +15,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "accessibility_profile.v1"
+      "const": "accessibility_profile"
     },
     "consent_to_profile": {
       "type": "boolean"

@@ -20,7 +20,7 @@ Profiler output JSON:
 - Confirmation recap every turn.
 - Keep response language aligned to UI selection.
 - Only infer functional needs.
-- Remain compatible with `JourneyOrchestrator` profile workflow.
+- Remain compatible with the `Orchestrator` profile workflow.
 
 ## Acceptance Criteria
 - Parsing fallback retries once with strict JSON instruction.

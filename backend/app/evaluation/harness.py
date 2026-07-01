@@ -4,10 +4,11 @@ from dataclasses import dataclass
 
 from backend.app.providers.llm_provider import MockLLMProvider
 from backend.app.providers.route_provider import MockRouteProvider
-from backend.app.services.multi_agent_orchestrator import JourneyOrchestrator
+from backend.app.services.orchestrator import Orchestrator
 from backend.app.services.planner_agent import PlannerAgent
 from backend.app.services.profiler_agent import ProfilerAgent
 
+#小型 profiling evaluation harness。它是用来快速检查：MAPA 的 profiler 能不能从几个固定 persona 的对话里抽出正确的 accessibility labels
 
 @dataclass
 class PersonaCase:
@@ -94,7 +95,7 @@ class EvaluationHarness:
         route_provider = MockRouteProvider()
         profiler = ProfilerAgent(llm_provider=llm_provider)
         planner = PlannerAgent(llm_provider=llm_provider, route_provider=route_provider)
-        self.orchestrator = JourneyOrchestrator(
+        self.orchestrator = Orchestrator(
             profiler_agent=profiler,
             planner_agent=planner,
             route_provider=route_provider,

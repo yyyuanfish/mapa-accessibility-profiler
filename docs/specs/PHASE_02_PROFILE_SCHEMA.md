@@ -2,7 +2,7 @@
 
 ## Scope
 - Define Pydantic models for accessibility profile v1.
-- Add JSON Schema mirror at `backend/app/schemas/accessibility_profile.v1.schema.json`.
+- Add JSON Schema mirror at `backend/app/schemas/accessibility_profile.schema.json`.
 - Include communication mode and confidence fields for all key domains.
 
 ## Required Semantics

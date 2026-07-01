@@ -1,254 +1,273 @@
-"""Dialogue Orchestrator: owns session state and routes turns to subagents.
+"""Application orchestrator — delegates to LangGraph workflows.
 
-The orchestrator is the Phase 2 top-level agent. Responsibilities:
-
-- Hold a ``SessionState`` for one user session (profile patch, skipped
-  domains, last question context, language, conversation history).
-- On every user turn, call the ``ProfilerAgent`` (which in turn uses the
-  ``NeedsExtractor`` subagent) to produce an updated patch, confirmation
-  text, and next question.
-- Decide when the profile is "done enough" so the UI can offer the plan
-  generation button.
-- Expose ``create_plan`` to call the ``PlannerAgent`` once a profile exists.
-
-It deliberately owns no LLM prompt itself — prompts belong to the subagent
-that talks to the LLM (``NeedsExtractor`` for profiling, ``PlannerAgent``
-for plans). This keeps subagents swappable and the orchestrator focused on
-flow control.
-
-Not in scope for Phase 2 (see plan file):
-- ValidatorAgent post-processing (Phase 4).
-- Cross-session memory / preference learning (Phase 4).
+This is the single top-level orchestrator used by the API and evaluation
+paths. It exposes profiling, planning, and speech I/O entry points while
+delegating the actual workflow execution to the compiled LangGraph graphs.
 """
-
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
+from backend.app.agents.planning_graph import run_planning
+from backend.app.agents.profile_graph import run_profile_turn
 from backend.app.models import (
     AccessibilityProfile,
+    AgentTrace,
+    AgentTraceStep,
+    HazardFusionSummary,
     ImageHazardsSummary,
+    MultiAgentPlanResult,
+    MultiAgentProfileResult,
     PersonalizedPlan,
     ProfilerAgentOutput,
+    RouteSelectionDecision,
+    SpeechTranscription,
 )
-from backend.app.providers.image_provider import ImageProvider
-from backend.app.services.needs_extractor import NeedsExtractor
-from backend.app.services.planner_agent import PlannerAgent
-from backend.app.services.profiler_agent import ProfilerAgent
-
-
-# ---------------------------------------------------------------------------
-# Session state
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ConversationTurn:
-    role: str  # "user" | "assistant"
-    text: str
-
-
-@dataclass
-class SessionState:
-    """All mutable state for one profiling session.
-
-    Lives inside the orchestrator. The Streamlit layer reads from here for
-    display only — it does not mutate these fields directly anymore.
-    """
-
-    profile_patch: dict[str, Any] = field(default_factory=dict)
-    skipped_domains: list[str] = field(default_factory=list)
-    last_question_context: str | None = "vision"  # first turn asks about vision
-    language: str = "en"
-    consent_to_profile: bool = True  # caller (Streamlit) gates this up front
-    history: list[ConversationTurn] = field(default_factory=list)
-
-    def reset(self, language: str = "en") -> None:
-        self.profile_patch = {}
-        self.skipped_domains = []
-        self.last_question_context = "vision"
-        self.language = language
-        self.consent_to_profile = True
-        self.history = []
-
-
-# ---------------------------------------------------------------------------
-# Output shape
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class OrchestratorTurnOutput:
-    """Return value of ``handle_turn``.
-
-    Mirrors ``ProfilerAgentOutput`` but adds orchestrator-level signals the
-    UI needs to decide what to render next.
-    """
-
-    confirmation_text: str
-    next_question: str | None
-    next_question_context: str | None
-    profile_patch: dict[str, Any]
-    can_generate_plan: bool
-    profiler_output: ProfilerAgentOutput  # full object for callers that want it
-
-
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
+from backend.app.providers.llm_provider import LLMProvider, MockLLMProvider
+from backend.app.providers.route_provider import RouteProvider
+from backend.app.providers.speech_provider import (
+    FasterWhisperSpeechProvider,
+    MockSpeechProvider,
+    SpeechProvider,
+)
 
 
 class Orchestrator:
-    """Dialogue manager composing the profiler + extractor + planner subagents."""
-
-    # Confidence floor above which the UI may offer plan generation. Matches
-    # the current frontend check ("any profile patch is enough") but adds a
-    # small guard: don't offer plan on an empty patch.
-    PLAN_CONFIDENCE_FLOOR = 0.25
+    """Facade over the LangGraph profiling and planning pipelines."""
 
     def __init__(
         self,
-        profiler: ProfilerAgent,
-        needs_extractor: NeedsExtractor | None = None,
-        planner: PlannerAgent | None = None,
-        image_provider: ImageProvider | None = None,
+        profiler_agent=None,  # kept for compatibility; not used internally
+        planner_agent=None,   # kept for compatibility; not used internally
+        route_provider: RouteProvider | None = None,
+        llm_provider: LLMProvider | None = None,
+        *,
+        llm_mode: str = "mock",
+        ollama_url: str = "http://localhost:11434",
+        ollama_model: str = "qwen3.5:4b",
+        ollama_timeout: int = 300,
+        ollama_profiler_model: str = "",
+        ollama_planner_model: str = "",
+        ollama_image_model: str = "",
+        speech_provider: SpeechProvider | None = None,
+        speech_mode: str = "mock",
+        speech_model: str = "small",
+        speech_device: str = "auto",
+        speech_compute_type: str = "int8",
     ) -> None:
-        self.profiler = profiler
-        # Use the extractor the profiler already holds if caller did not pass
-        # one explicitly. Keeps a single extractor instance per session.
-        self.needs_extractor = needs_extractor or profiler.needs_extractor
-        self.planner = planner
-        self.image_provider = image_provider
-        self.state = SessionState()
+        self._llm_mode = llm_mode
+        self._ollama_url = ollama_url
+        self._ollama_model = ollama_model
+        self._ollama_timeout = ollama_timeout
+        self._ollama_profiler_model = ollama_profiler_model or ollama_model
+        self._ollama_planner_model = ollama_planner_model or ollama_model
+        self._ollama_image_model = ollama_image_model or ollama_model
+        self._speech_provider = speech_provider or self._build_speech_provider(
+            speech_mode=speech_mode,
+            speech_model=speech_model,
+            speech_device=speech_device,
+            speech_compute_type=speech_compute_type,
+        )
+        # Reserved for future route provider injection; currently the graph owns
+        # route provider construction internally.
+        self._route_provider = route_provider
+        self._llm_provider = llm_provider
+        self._profiler_agent = profiler_agent
+        self._planner_agent = planner_agent
 
-    # ------------------------------------------------------------------
-    # Per-turn handling
-    # ------------------------------------------------------------------
-
-    def handle_turn(
+    def process_profile_turn(
         self,
         user_message: str,
-        response_language: str | None = None,
-    ) -> OrchestratorTurnOutput:
-        """Process one user message and advance session state.
+        current_patch: dict[str, Any] | None = None,
+        skipped_domains: list[str] | None = None,
+        question_context: str | None = None,
+        response_language: str = "en",
+        consent_to_profile: bool = True,
+        turn_count: int = 1,
+    ) -> MultiAgentProfileResult:
+        state = run_profile_turn({
+            "user_message": user_message,
+            "current_patch": current_patch,
+            "skipped_domains": skipped_domains or [],
+            "question_context": question_context,
+            "turn_count": turn_count,
+            "language": response_language,
+            "consent_to_profile": consent_to_profile,
+            "llm_mode": self._llm_mode,
+            "ollama_url": self._ollama_url,
+            "ollama_model": self._ollama_model,
+            "ollama_timeout": self._ollama_timeout,
+            "ollama_profiler_model": self._ollama_profiler_model,
+            "ollama_planner_model": self._ollama_planner_model,
+            "ollama_image_model": self._ollama_image_model,
+            "consent_granted": False,
+            "trace_steps": [],
+            "error": None,
+        })
 
-        Steps:
-        1. Record the user turn in history.
-        2. Track ``skip`` as a domain-level skip so the next-question logic
-           can move past it.
-        3. Delegate to ``ProfilerAgent.process_turn`` (which uses the
-           ``NeedsExtractor`` internally and also applies the context yes/no
-           overlay).
-        4. Update session state from the profiler output.
-        5. Record the assistant turn in history.
-        """
-        language = response_language or self.state.language
-        self.state.language = language
-        self.state.history.append(ConversationTurn(role="user", text=user_message))
+        if state.get("error"):
+            raise ValueError(state["error"])
 
-        # Pre-profiler: if the user typed "skip" to the focused question, mark
-        # that domain as skipped so we don't re-ask. Mirrors the frontend logic.
-        if self.state.last_question_context:
-            classified = self.profiler._classify_short_answer(user_message)
-            if classified == "skip":
-                domain = _context_to_domain(self.state.last_question_context)
-                if domain and domain not in self.state.skipped_domains:
-                    self.state.skipped_domains.append(domain)
+        profiler_output_dict = state.get("profiler_output") or {}
+        draft_dict = state.get("draft_profile") or {}
 
-        profiler_output = self.profiler.process_turn(
-            user_message=user_message,
-            current_patch=self.state.profile_patch,
-            skipped_domains=self.state.skipped_domains,
-            question_context=self.state.last_question_context,
-            response_language=language,
-        )
+        profiler_output = ProfilerAgentOutput.model_validate({
+            "profile_patch": profiler_output_dict.get("profile_patch", {}),
+            "confidence": profiler_output_dict.get("confidence", {}),
+            "missing_critical_fields": profiler_output_dict.get("missing_critical_fields", []),
+            "next_question": profiler_output_dict.get("next_question"),
+            "next_question_context": profiler_output_dict.get("next_question_context"),
+            "confirmation_text": profiler_output_dict.get("confirmation_text", ""),
+        })
+        draft_profile = AccessibilityProfile.model_validate(draft_dict)
 
-        # Persist new patch + advance dialogue cursor.
-        self.state.profile_patch = profiler_output.profile_patch.model_dump()
-        self.state.last_question_context = profiler_output.next_question_context
+        trace = self._build_agent_trace("profile_workflow", state.get("trace_steps", []))
+        agent_reply = state.get("agent_reply", "")
 
-        # Plan-ready gate: either no more questions to ask, or confidence is
-        # high enough AND the patch is non-empty.
-        overall_confidence = profiler_output.confidence.overall
-        patch_has_content = bool(profiler_output.profile_patch.needs.model_dump(exclude_none=True))
-        can_generate_plan = patch_has_content and (
-            profiler_output.next_question is None
-            or overall_confidence >= self.PLAN_CONFIDENCE_FLOOR
-        )
-
-        assistant_text = profiler_output.confirmation_text
-        if profiler_output.next_question:
-            assistant_text = f"{assistant_text}\n\n{profiler_output.next_question}"
-        self.state.history.append(ConversationTurn(role="assistant", text=assistant_text))
-
-        return OrchestratorTurnOutput(
-            confirmation_text=profiler_output.confirmation_text,
-            next_question=profiler_output.next_question,
-            next_question_context=profiler_output.next_question_context,
-            profile_patch=self.state.profile_patch,
-            can_generate_plan=can_generate_plan,
+        return MultiAgentProfileResult(
             profiler_output=profiler_output,
+            draft_profile=draft_profile,
+            trace=trace,
+            agent_reply=agent_reply,
         )
 
-    # ------------------------------------------------------------------
-    # Profile / plan builders
-    # ------------------------------------------------------------------
-
-    def build_profile(self) -> AccessibilityProfile:
-        return self.profiler.build_profile(
-            self.state.profile_patch,
-            consent_to_profile=self.state.consent_to_profile,
-            skipped_domains=self.state.skipped_domains,
-        )
-
-    def create_plan(
+    def build_profile(
         self,
-        route_id: str,
-        image_bytes: bytes | None = None,
-        image_hazards: ImageHazardsSummary | dict[str, Any] | None = None,
-    ) -> PersonalizedPlan:
-        if self.planner is None:
-            raise RuntimeError(
-                "Orchestrator has no planner attached; pass ``planner=`` at construction."
-            )
-        hazards = image_hazards
-        if hazards is None and image_bytes is not None and self.image_provider is not None:
-            hazards = self.image_provider.summarize_hazards(image_bytes)
+        profile_patch: dict[str, Any],
+        consent_to_profile: bool = True,
+        skipped_domains: list[str] | None = None,
+    ) -> AccessibilityProfile:
+        from backend.app.services.profiler_agent import ProfilerAgent
 
-        profile = self.build_profile()
-        return self.planner.create_plan(
-            profile=profile,
-            route_id=route_id,
-            image_hazards=hazards,
-            response_language=self.state.language,
+        agent = ProfilerAgent(llm_provider=MockLLMProvider())
+        return agent.build_profile(
+            profile_patch=profile_patch,
+            consent_to_profile=consent_to_profile,
+            skipped_domains=skipped_domains,
         )
 
-    # ------------------------------------------------------------------
-    # Admin
-    # ------------------------------------------------------------------
+    def create_journey_plan(
+        self,
+        profile: AccessibilityProfile | dict[str, Any],
+        route_id: str,
+        image_hazards: ImageHazardsSummary | dict[str, Any] | None = None,
+        response_language: str = "en",
+        zurich_data_override: dict[str, Any] | None = None,
+    ) -> MultiAgentPlanResult:
+        profile_dict = profile.model_dump() if isinstance(profile, AccessibilityProfile) else profile
+        hazard_dict: dict[str, Any] | None = None
+        if image_hazards is not None:
+            hazard_dict = (
+                image_hazards.model_dump()
+                if isinstance(image_hazards, ImageHazardsSummary)
+                else image_hazards
+            )
 
-    def reset(self, language: str = "en") -> None:
-        self.state.reset(language=language)
+        state = run_planning({
+            "profile": profile_dict,
+            "route_id": route_id,
+            "language": response_language,
+            "image_hazards": hazard_dict,
+            "zurich_data_override": zurich_data_override,
+            "llm_mode": self._llm_mode,
+            "ollama_url": self._ollama_url,
+            "ollama_model": self._ollama_model,
+            "ollama_timeout": self._ollama_timeout,
+            "ollama_profiler_model": self._ollama_profiler_model,
+            "ollama_planner_model": self._ollama_planner_model,
+            "ollama_image_model": self._ollama_image_model,
+            "is_valid": False,
+            "validation_error": None,
+            "trace_steps": [],
+            "error": None,
+        })
 
+        if state.get("error"):
+            raise ValueError(state["error"])
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+        plan = PersonalizedPlan.model_validate(state.get("plan") or {})
 
+        selected_route_dict = state.get("selected_route") or {}
+        route_decision = RouteSelectionDecision(
+            requested_route_id=route_id,
+            requested_route_name=selected_route_dict.get("name", route_id),
+            selected_route_id=selected_route_dict.get("route_id", route_id),
+            selected_route_name=selected_route_dict.get("name", route_id),
+            switched_to_step_free=selected_route_dict.get("route_id", route_id) != route_id,
+            reasons=state.get("route_preferences") or [],
+            alerts=state.get("route_alerts") or [],
+        )
 
-def _context_to_domain(question_context: str) -> str | None:
-    """Map a ``_QUESTION_TEXTS`` key onto a top-level domain name.
+        fused = state.get("fused_hazards") or {}
+        hazard_summary = HazardFusionSummary(
+            source=fused.get("source", "route_metadata_only"),
+            highlights=fused.get("highlights", []),
+        )
 
-    Mirrors ``frontend/app.py::context_to_domain`` so orchestrator-owned skip
-    tracking matches the legacy frontend-owned behavior.
-    """
-    if question_context in {"vision"}:
-        return "vision"
-    if question_context in {"hearing", "hearing_sign"}:
-        return "hearing"
-    if question_context in {"mobility"}:
-        return "mobility"
-    if question_context in {"cognitive"}:
-        return "cognitive"
-    return None
+        trace = self._build_agent_trace("planning_workflow", state.get("trace_steps", []))
+        agent_reply = state.get("agent_reply", "")
+
+        return MultiAgentPlanResult(
+            route_decision=route_decision,
+            hazard_summary=hazard_summary,
+            plan=plan,
+            trace=trace,
+            agent_reply=agent_reply,
+        )
+
+    def format_plan(self, plan: Any, language: str = "en") -> str:
+        from backend.app.providers.route_provider import MockRouteProvider
+        from backend.app.services.planner_agent import PlannerAgent
+
+        agent = PlannerAgent(llm_provider=MockLLMProvider(), route_provider=MockRouteProvider())
+        return agent.format_plan(plan, language=language)
+
+    def transcribe_audio(
+        self,
+        audio_bytes: bytes,
+        *,
+        mime_type: str | None = None,
+        response_language: str = "en",
+    ) -> SpeechTranscription:
+        return self._speech_provider.transcribe(
+            audio_bytes,
+            mime_type=mime_type,
+            language=response_language,
+        )
+
+    def prepare_spoken_text(self, text: str, *, response_language: str = "en") -> str:
+        return self._speech_provider.prepare_output_text(
+            text,
+            language=response_language,
+        )
+
+    @staticmethod
+    def _build_speech_provider(
+        *,
+        speech_mode: str,
+        speech_model: str,
+        speech_device: str,
+        speech_compute_type: str,
+    ) -> SpeechProvider:
+        if speech_mode == "faster-whisper":
+            return FasterWhisperSpeechProvider(
+                model_size=speech_model,
+                device=speech_device,
+                compute_type=speech_compute_type,
+            )
+        return MockSpeechProvider()
+
+    @staticmethod
+    def _build_agent_trace(workflow: str, trace_steps: list[dict[str, Any]]) -> AgentTrace:
+        steps = [
+            AgentTraceStep(
+                agent_name=s.get("agent_name", "unknown"),
+                role=s.get("role", ""),
+                summary=s.get("summary", ""),
+                input_keys=s.get("input_keys", []),
+                output_keys=s.get("output_keys", []),
+                key_findings=s.get("key_findings", []),
+            )
+            for s in trace_steps
+        ]
+        return AgentTrace(workflow=workflow, steps=steps)

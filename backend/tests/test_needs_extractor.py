@@ -41,6 +41,62 @@ def test_cant_read_complex_text_sets_simple_language() -> None:
     assert patch["needs"]["cognitive"]["needs_simple_language"] is True
 
 
+def test_colloquial_vision_phrase_sets_vision() -> None:
+    patch = _extractor().extract(
+        "My eyesight is bad, so I rely on landmarks and spoken directions."
+    )
+    assert patch["needs"]["vision"]["blind_or_low_vision"] is True
+
+
+def test_colloquial_steps_and_lifts_sets_step_free() -> None:
+    patch = _extractor().extract(
+        "I cannot cope with steps; ramps or lifts are safer for me."
+    )
+    assert patch["needs"]["mobility"]["needs_step_free_route"] is True
+
+
+def test_colloquial_lip_reading_sets_hearing_need() -> None:
+    patch = _extractor().extract(
+        "I read lips and often miss announcements in noisy stations."
+    )
+    assert patch["needs"]["hearing"]["deaf_or_hard_of_hearing"] is True
+
+
+def test_colloquial_signing_preference_sets_sign_language() -> None:
+    patch = _extractor().extract(
+        "I prefer signing to written instructions when that is available."
+    )
+    assert patch["needs"]["hearing"]["sign_language_user"] is True
+    assert patch["needs"]["hearing"]["deaf_or_hard_of_hearing"] is True
+
+
+def test_colloquial_small_chunks_sets_simple_and_memory_support() -> None:
+    patch = _extractor().extract(
+        "Keep directions in small chunks; long paragraphs make me lose track."
+    )
+    assert patch["needs"]["cognitive"]["needs_simple_language"] is True
+    assert patch["needs"]["cognitive"]["needs_memory_support"] is True
+
+
+def test_multineed_long_text_phrase_sets_mobility_and_simple_language() -> None:
+    patch = _extractor().extract(
+        "I use a wheelchair and need step-free routes. I also have trouble "
+        "reading long texts, so please keep instructions short."
+    )
+
+    assert patch["needs"]["mobility"]["wheelchair_user"] is True
+    assert patch["needs"]["mobility"]["needs_step_free_route"] is True
+    assert "avoid_long_walks" not in patch["needs"]["mobility"]
+    assert patch["needs"]["cognitive"]["needs_simple_language"] is True
+    assert patch["communication"]["output_mode"] == "simple_text"
+
+
+def test_explicit_walking_distance_limit_sets_avoid_long_walks() -> None:
+    patch = _extractor().extract("I cannot walk far, so I need short walking distances.")
+
+    assert patch["needs"]["mobility"]["avoid_long_walks"] is True
+
+
 # ---------------------------------------------------------------------------
 # The original bug-trigger: all three domains in one free-form reply
 # ---------------------------------------------------------------------------

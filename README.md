@@ -1,52 +1,47 @@
-# MAPA Profiler Agent
+# MAPA: Accessibility Profiling and Personalized Journey Planning
 
-Offline-first prototype for **consent-first accessibility profiling** and **personalized journey planning**, built with a LangGraph multi-agent pipeline.
+![MAPA architecture overview](docs/assets/mapa-architecture.png)
 
-## Architecture
+MAPA (Multimodal multi-Agent Profiling for Accessibility) is the prototype developed for the thesis **Accessibility Profiling and Personalized Journey Planning: A Multimodal Multi-Agent LLM-Based Framework**.
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React + TypeScript + Vite + Shadcn/Radix UI |
-| API | FastAPI (REST + SSE streaming) |
-| Pipeline | LangGraph StateGraph (parallel node execution) |
-| LLM | Ollama (`qwen3.5:4b` text, `llava:7b` vision) or deterministic Mock |
-| Validation | Pydantic v2 strict models + JSON Schema v1 |
+The system runs a short consent-first profiling dialogue, stores route-relevant access needs as a validated JSON profile, and applies the confirmed profile to fixed route examples and selected City of Zurich open data. The repository is prepared as the code and artifact package for thesis review.
 
-## Runtime Modes
+## Thesis Review Version
 
-| Mode | Description |
-|------|-------------|
-| **Mock** (default) | Fully offline, deterministic — no model server needed |
-| **Ollama** | Local LLM via Ollama — no cloud API key |
-| **Backend** | React frontend connects to FastAPI over REST/SSE |
+The reviewed thesis version should be cited from a fixed Git tag or GitHub release. After the submission deadline, keep that tagged version unchanged. If development continues after submission, use a new branch, a new release tag, or a separate repository.
 
-## Pipeline
+Suggested release tag for the submitted version:
 
-### Profile Pipeline (multi-turn dialogue)
-```
-consent_guard → profiler → profile_manager → conversation_orchestrator → END
+```bash
+git tag -a thesis-submission-2026-07-01 -m "Thesis submission review version"
+git push origin thesis-submission-2026-07-01
 ```
 
-### Planning Pipeline (parallel fan-out)
-```
-input_validator → [ route_reasoner || image_hazard ] → hazard_fusion → planner → synthesis → END
-```
+## Repository Contents
 
-`route_reasoner` and `image_hazard` run in parallel via LangGraph.
-See interactive diagram: `docs/pipeline_workflow.html`
+| Path | Purpose |
+| --- | --- |
+| `backend/` | API, profile and planning pipelines, providers, schemas, and evaluation code |
+| `frontend/` | Browser interface for consent, profiling, route planning, speech controls, and map display |
+| `results/` | Generated evaluation reports, case-level CSV files, and LaTeX table fragments used in the thesis |
+| `docs/` | API contract, implementation notes, Zurich open-data integration report, and README assets |
+| `skills/` | Agent responsibility notes used during staged implementation |
+| `pipeline_workflow.html` | Interactive overview of the profile and planning pipelines |
 
-## API Endpoints
+## Main Features
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/routes` | List route fixtures |
-| POST | `/api/profile/turn` | Profile dialogue turn (sync) |
-| POST | `/api/profile/stream` | Profile dialogue turn (SSE) |
-| POST | `/api/plan` | Create journey plan (sync) |
-| POST | `/api/plan/stream` | Create journey plan (SSE, shows parallel progress) |
+- consent-first profiling dialogue with skip and confirmation steps
+- validated `accessibility_profile` JSON representation for vision, hearing, mobility, and cognition needs
+- deterministic mock mode for offline evaluation
+- optional local text and vision model providers
+- route planning over fixed route fixtures: `route_with_stairs`, `step_free_route`, and `long_walk_route`
+- City of Zurich open-data enrichment for accessibility barriers, toilets, and parking where coordinates are available
+- REST and Server-Sent Events endpoints for profile and planning calls
+- browser frontend with Mock, local model, and Backend modes
 
-## Setup
+## Quick Start
+
+Create the Python environment and install dependencies:
 
 ```bash
 python -m venv .venv
@@ -54,84 +49,76 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Run
+Run the backend:
 
 ```bash
-# Backend (port 8000)
 uvicorn backend.app.api:app --reload --port 8000
-
-# Frontend (port 8080)
-cd frontend && npm install && npm run dev
 ```
 
-## Use Ollama (Optional)
+Run the frontend:
 
 ```bash
-ollama serve
-ollama pull qwen3.5:4b    # text model (3.4 GB)
-ollama pull llava:7b       # vision model (4.7 GB)
+cd frontend
+npm install
+npm run dev
 ```
 
-Then set `mode: "ollama"` in API requests, or select "Ollama" / "Backend" mode in the frontend.
+The default mode is deterministic and offline. Local model calls are optional.
 
-## Tests
+## API Endpoints
 
-```bash
-pytest -q
-```
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/routes` | List route fixtures |
+| `GET` | `/api/zurich/data` | Fetch Zurich barrier, toilet, and parking data near a point |
+| `POST` | `/api/audio/transcribe` | Upload microphone audio for transcription |
+| `POST` | `/api/profile/turn` | Profile dialogue turn |
+| `POST` | `/api/profile/stream` | Streaming profile dialogue turn |
+| `POST` | `/api/plan` | Create a personalized route plan |
+| `POST` | `/api/plan/stream` | Streaming plan generation with per-node progress |
 
-## Evaluation Harness
+See `docs/API_CONTRACT.md` for request and response shapes.
+
+## Evaluation Artifacts
+
+The thesis evaluation artifacts are stored in `results/`.
+
+| File | Content |
+| --- | --- |
+| `experiment_report.json` | Full generated report for profiling, planning, boundary, and indoor-style adaptation experiments |
+| `profiling_cases.csv` | Case-level profiling outputs and label scores |
+| `planning_cases.csv` | Case-level planning outputs across baseline and profile-conditioned settings |
+| `boundary_planning_cases.csv` | Boundary cases for fallback warnings and unsupported accessibility claims |
+| `indoor_adaptation_cases.csv` | Indoor-style persona adaptation cases |
+| `table_*.tex` | LaTeX table fragments included in the thesis |
+
+Run the evaluation harness:
 
 ```bash
 python -m backend.app.evaluation.run_eval
 ```
 
-Runs 5 scripted personas (Blind, Deaf/sign, Wheelchair, Cognitive, Mixed) through the profiler and reports precision/recall metrics.
+Run the test suite:
 
-## Project Structure
-
-```
-backend/
-  app/
-    api.py                          # FastAPI endpoints (REST + SSE)
-    models.py                       # Pydantic v2 models
-    agents/
-      state.py                      # LangGraph TypedDict state
-      profile_graph.py              # Profile pipeline (4 nodes)
-      planning_graph.py             # Planning pipeline (6 nodes, parallel)
-    services/
-      profiler_agent.py             # Dialogue agent
-      planner_agent.py              # Plan generation agent
-      multi_agent_orchestrator.py   # JourneyOrchestrator (delegates to graphs)
-    providers/
-      llm_provider.py               # Mock + Ollama LLM providers
-      route_provider.py             # Mock route fixtures
-      image_provider.py             # Mock + Ollama image analysis
-    utils/
-      json_extract.py               # Robust JSON extraction
-    evaluation/
-      harness.py                    # Evaluation framework
-  tests/
-frontend/
-  src/
-    components/                     # React UI components
-    lib/
-      runtime-context.tsx           # Mode/language state
-      backend-api.ts                # Backend API client + schema translation
-docs/
-  pipeline_workflow.html            # Interactive pipeline diagram
-  specs/                            # Phase specification documents
-skills/                             # Agent responsibility definitions
+```bash
+pytest -q
 ```
 
-## Supported Accessibility Behaviors
+## Local Models
 
-- **Vision**: stepwise text, avoid map-only references, landmark-friendly guidance
-- **Hearing**: avoid audio-only cues, provide visible/text alternatives
-- **Sign users**: `sign_gloss_text` output mode
-- **Mobility**: step-free preference, strong stair alerts, route switching
-- **Cognitive**: simple language mode, reminders, micro-step checklists
+The mock providers are sufficient for deterministic review. To try the local model mode, start a local model server and use the model names configured in the backend provider settings.
 
-## Language Support
+```bash
+ollama serve
+ollama pull qwen3.5:4b
+ollama pull llava:7b
+```
 
-English, 中文, Deutsch
+## Citation
+
+Use the repository citation metadata in `CITATION.cff`, or cite the review release once the thesis submission tag has been pushed.
+
+## License
+
+This repository is released for thesis review and academic non-commercial reuse with attribution. See `LICENSE` for the full terms.

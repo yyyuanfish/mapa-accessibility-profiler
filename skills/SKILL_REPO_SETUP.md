@@ -7,7 +7,7 @@ Create an offline-first Python repo with LangGraph multi-agent pipeline, FastAPI
 1. Create `backend/app`, `backend/app/agents`, `backend/app/services`, `backend/app/providers`, `backend/tests`, `frontend`, `docs/specs`, and `skills`.
 2. Add `__init__.py` files so imports like `backend.app...` work in pytest.
 3. Add root `conftest.py` path setup so `backend` imports resolve in tests.
-4. Add provider interfaces first (`LLMProvider`, `RouteProvider`, `ImageProvider`).
+4. Add provider interfaces first (`LLMProvider`, `RouteProvider`, `ImageProvider`, `SpeechProvider`).
 5. Keep mocks deterministic and local-file driven.
 6. Add LangGraph `StateGraph` pipelines in `backend/app/agents/` with `TypedDict` state.
 7. Add FastAPI server in `backend/app/api.py` with REST + SSE streaming endpoints.
